@@ -408,24 +408,24 @@ let A = null;                    /* live audio graph, built on Begin */
 const vis = { notes: [], ripples: [], shocks: [], bells: 0 };   /* events the picture reads */
 
 const MODELS = {
-  blend:     { name: 'Sine and saw',     a: ['Saw amount', 0.25],     b: ['Chorus', 0.35],        trim: 1.0 },
-  supersaw:  { name: 'Detuned saws',     a: ['Detune', 0.3],          b: ['Side voices', 0.7],    trim: 1.5 },
-  fm:        { name: 'FM glass',         a: ['Modulator ratio', 0.3], b: ['Brightness', 0.25],    trim: 0.77 },
-  organ:     { name: 'Drawbar organ',    a: ['Brightness', 0.5],      b: ['Reed', 0.4],           trim: 0.68 },
-  pulse:     { name: 'Pulse and width',  a: ['Pulse width', 0.5],     b: ['Width motion', 0.4],   trim: 1.35 },
-  choir:     { name: 'Vowel choir',      a: ['Vowel', 0.0],           b: ['Focus', 0.5],          trim: 1.45 },
-  resonator: { name: 'Noise resonator',  a: ['Ring', 0.5],            b: ['Overtone', 0.3],       trim: 2.35 },
+  blend:     { name: 'Sine and saw',     a: ['Saw amount', 0.25],     b: ['Chorus', 0.35],        trim: 1.25 },
+  supersaw:  { name: 'Detuned saws',     a: ['Detune', 0.3],          b: ['Side voices', 0.7],    trim: 0.67 },
+  fm:        { name: 'FM glass',         a: ['Modulator ratio', 0.3], b: ['Brightness', 0.25],    trim: 0.7 },
+  organ:     { name: 'Drawbar organ',    a: ['Brightness', 0.5],      b: ['Reed', 0.4],           trim: 0.7 },
+  pulse:     { name: 'Pulse and width',  a: ['Pulse width', 0.5],     b: ['Width motion', 0.4],   trim: 1.0 },
+  choir:     { name: 'Vowel choir',      a: ['Vowel', 0.0],           b: ['Focus', 0.5],          trim: 2.6 },
+  resonator: { name: 'Noise resonator',  a: ['Ring', 0.5],            b: ['Overtone', 0.3],       trim: 1.0 },
 };
 const VOWELS = [[800, 1150, 2900], [400, 1600, 2700], [270, 2140, 2950], [450, 800, 2830], [325, 700, 2700]];
 const LAYERS = [
-  { id: 'sub2', ratio: 0.25, lfo: 0.009, depth: 0.10, trim: 'trimSub2' },
-  { id: 'sub1', ratio: 0.5,  lfo: 0.013, depth: 0.10, trim: 'trimSub1' },
-  { id: 'root', ratio: 1,    lfo: 0.017, depth: 0.075, trim: 'trimRoot' },
-  { id: 'oct1', ratio: 2,    lfo: 0.021, depth: 0.125, trim: 'trimOct1' },
-  { id: 'oct2', ratio: 4,    lfo: 0.026, depth: 0.15, trim: 'trimOct2' },
-  { id: 'bell', ratio: 2.76, lfo: 0.031, depth: 0.10, trim: 'trimBell' },
+  { id: 'sub2', pan: 0, ratio: 0.25, lfo: 0.009, depth: 0.10, trim: 'trimSub2' },
+  { id: 'sub1', pan: 0, ratio: 0.5,  lfo: 0.013, depth: 0.10, trim: 'trimSub1' },
+  { id: 'root', pan: 0, ratio: 1,    lfo: 0.017, depth: 0.075, trim: 'trimRoot' },
+  { id: 'oct1', pan: -0.45, ratio: 2,    lfo: 0.021, depth: 0.125, trim: 'trimOct1' },
+  { id: 'oct2', pan: 0.5, ratio: 4,    lfo: 0.026, depth: 0.15, trim: 'trimOct2' },
+  { id: 'bell', pan: 0.3, ratio: 2.76, lfo: 0.031, depth: 0.10, trim: 'trimBell' },
 ];
-const DRONE_GAIN = 0.55;
+const DRONE_GAIN = 0.65;
 
 /* ---------- buffers ---------- */
 function makePink(ctx, secs) {
@@ -487,29 +487,38 @@ function makeUnit(model, f0) {
     const o1 = osc('sine'), o2 = osc('sawtooth'), g1 = ctx.createGain(), g2 = ctx.createGain();
     g1.gain.value = 0.775; g2.gain.value = 0.225;
     o1.connect(g1).connect(out); o2.connect(g2).connect(out);
-    U.setFreq = (f, t, tau) => { T(o1.frequency, f, t, tau); T(o2.frequency, f, t, tau); };
-    U.setTimbre = (a, b, ps, t) => { T(g1.gain, 1 - a * 0.9, t, 0.4); T(g2.gain, a * 0.9, t, 0.4); T(o2.detune, clamp(b * ps, 0, 1.6) * 16, t, 0.4); };
+    let beat = 0.15;
+    const det = (t, tau) => T(o2.detune, 1200 * Math.log2(1 + beat / Math.max(20, U.f)), t, tau);
+    U.setFreq = (f, t, tau) => { U.f = f; T(o1.frequency, f, t, tau); T(o2.frequency, f, t, tau); det(t, tau); };
+    /* the chorus is a fixed slow beat (under half a hertz) on every layer, so the upper octaves shimmer instead of wobbling */
+    U.setTimbre = (a, b, ps, t) => { T(g1.gain, 1 - a * 0.9, t, 0.4); T(g2.gain, a * 0.9, t, 0.4); beat = clamp(b * ps, 0, 1.6) * 0.3 + 0.02; det(t, 0.4); };
   } else if (model === 'supersaw') {
     const os = [osc('sawtooth'), osc('sawtooth'), osc('sawtooth')], gs = os.map(() => ctx.createGain());
-    os.forEach((o, i) => o.connect(gs[i]).connect(out));
-    U.setFreq = (f, t, tau) => os.forEach(o => T(o.frequency, f, t, tau));
+    /* a key-tracked lowpass takes the fizz off the saw stack, about six harmonics up */
+    const tone = ctx.createBiquadFilter(); tone.type = 'lowpass'; tone.Q.value = 0.5; tone.frequency.value = Math.min(16000, f0 * 6); tone.connect(out);
+    os.forEach((o, i) => o.connect(gs[i]).connect(tone));
+    U.setFreq = (f, t, tau) => { os.forEach(o => T(o.frequency, f, t, tau)); T(tone.frequency, Math.min(16000, f * 6), t, tau); };
     U.setTimbre = (a, b, ps, t) => {
       const c = clamp(a * ps, 0, 1.7) * 40;
       T(os[0].detune, -c, t, 0.4); T(os[2].detune, c, t, 0.4);
       T(gs[1].gain, 1, t, 0.4); T(gs[0].gain, b, t, 0.4); T(gs[2].gain, b, t, 0.4);
     };
   } else if (model === 'fm') {
-    const c = osc('sine'), m = osc('sine'), mg = ctx.createGain(), lf = ctx.createOscillator(), lg = ctx.createGain();
-    let ratio = 1.5, idx = 1.5; nodes.push(lf);
-    lf.frequency.value = 0.04 + Math.random() * 0.06;
-    m.connect(mg).connect(c.frequency); lf.connect(lg).connect(mg.gain); c.connect(out);
-    const apply = (t, tau) => {
-      T(m.frequency, U.f * ratio, t, tau);
-      T(mg.gain, U.f * ratio * idx, t, tau); T(lg.gain, U.f * ratio * idx * 0.35, t, tau);
-    };
-    U.setFreq = (f, t, tau) => { U.f = f; T(c.frequency, f, t, tau); apply(t, tau); };
+    /* one pitch signal drives carrier, modulator and index together, so a glide keeps the ratio exact
+       and the tone never smears into inharmonic sidebands mid-slide */
+    const pitch = ctx.createConstantSource(); pitch.offset.value = f0; nodes.push(pitch);
+    const c = osc('sine'), m = osc('sine'); c.frequency.value = 0; m.frequency.value = 0;
+    const rG = ctx.createGain(), mg = ctx.createGain(), dG = ctx.createGain(), lf = ctx.createOscillator(), lMul = ctx.createGain(), dG2 = ctx.createGain();
+    nodes.push(lf); lf.frequency.value = 0.04 + Math.random() * 0.06;
+    mg.gain.value = 0; lMul.gain.value = 0;
+    pitch.connect(c.frequency); pitch.connect(rG).connect(m.frequency);
+    pitch.connect(dG).connect(mg.gain); pitch.connect(dG2).connect(lMul.gain); lf.connect(lMul).connect(mg.gain);
+    m.connect(mg).connect(c.frequency); c.connect(out);
+    let ratio = 1.5, idx = 1.5;
+    const apply = (t, tau) => { T(rG.gain, ratio, t, tau); T(dG.gain, ratio * idx, t, tau); T(dG2.gain, ratio * idx * 0.35, t, tau); };
+    rG.gain.value = ratio; dG.gain.value = ratio * idx; dG2.gain.value = ratio * idx * 0.35;
+    U.setFreq = (f, t, tau) => { U.f = f; T(pitch.offset, f, t, tau); };
     U.setTimbre = (a, b, ps, t) => { ratio = 0.5 + a * 4.5; idx = b * 5; apply(t, 0.4); };
-    mg.gain.value = f0 * ratio * idx;
   } else if (model === 'organ') {
     const o = osc(); let la = -9, lb = -9;
     o.connect(out);
@@ -518,8 +527,9 @@ function makeUnit(model, f0) {
     o.setPeriodicWave(organWave(ctx, 0.5, 0.4));
   } else if (model === 'pulse') {
     const o1 = osc(), o2 = osc(), g = ctx.createGain(); let lw = -9;
-    g.gain.value = 0.5; o1.connect(g); o2.connect(g); g.connect(out);
-    U.setFreq = (f, t, tau) => { T(o1.frequency, f, t, tau); T(o2.frequency, f, t, tau); };
+    const tone = ctx.createBiquadFilter(); tone.type = 'lowpass'; tone.Q.value = 0.5; tone.frequency.value = Math.min(16000, f0 * 7);
+    g.gain.value = 0.5; o1.connect(g); o2.connect(g); g.connect(tone); tone.connect(out);
+    U.setFreq = (f, t, tau) => { T(o1.frequency, f, t, tau); T(o2.frequency, f, t, tau); T(tone.frequency, Math.min(16000, f * 7), t, tau); };
     U.setTimbre = (a, b, ps, t) => {
       const w = 0.1 + a * 0.4;
       if (Math.abs(w - lw) > 0.012) { o1.setPeriodicWave(pulseWave(ctx, w)); o2.setPeriodicWave(pulseWave(ctx, clamp(w + 0.13, 0.1, 0.5))); lw = w; }
@@ -545,12 +555,13 @@ function makeUnit(model, f0) {
     f1.type = f2.type = 'bandpass'; f1.frequency.value = f0; f2.frequency.value = f0 * 3;
     src.connect(f1); src.connect(f2); f1.connect(g1).connect(out); f2.connect(g2).connect(out);
     g1.gain.value = 1; g2.gain.value = 0.3;
-    let q = 100;
-    U.setFreq = (f, t, tau) => { T(f1.frequency, f, t, tau); T(f2.frequency, f * 3, t, tau); };
-    U.setTimbre = (a, b, ps, t) => {
-      q = 15 + a * 235; const comp = 0.06 * Math.sqrt(q);
-      T(f1.Q, q, t, 0.5); T(f2.Q, q * 0.8, t, 0.5); T(g1.gain, comp, t, 0.5); T(g2.gain, comp * b * 1.4, t, 0.5);
-    };
+    /* a bandpass on white noise passes power in proportion to its bandwidth (f / Q), so the makeup gain
+       is computed from that: each ring comes out near a fixed loudness whatever its pitch or Q */
+    let q = 100, ov = 0.3;
+    const nb = (f, qq) => 0.6 / (0.577 * Math.sqrt(1.5708 * f / qq / (ctx.sampleRate / 2)));
+    const gains = (t, tau, f) => { f = Math.max(20, f || f1.frequency.value); T(g1.gain, nb(f, q), t, tau); T(g2.gain, nb(f * 3, q * 0.8) * ov * 0.5, t, tau); };
+    U.setFreq = (f, t, tau) => { U.f = f; T(f1.frequency, f, t, tau); T(f2.frequency, f * 3, t, tau); gains(t, tau, f); };
+    U.setTimbre = (a, b, ps, t) => { q = 15 + a * 235; ov = b; T(f1.Q, q, t, 0.5); T(f2.Q, q * 0.8, t, 0.5); gains(t, 0.5); };
   }
   U.start = () => nodes.forEach(n => { if (n instanceof AudioBufferSourceNode) n.start(0, Math.random() * (n.buffer.duration - 0.05)); else n.start(); });
   U.stop = () => { nodes.forEach(n => { try { n.stop(); } catch (e) { } }); try { out.disconnect(); } catch (e) { } };
@@ -567,12 +578,20 @@ function buildDrone(model, hz) {
     const lfo = ctx.createOscillator(), lg = ctx.createGain();
     lfo.frequency.value = L.lfo; lg.gain.value = L.depth; lfo.connect(lg).connect(swell.gain); lfo.start(ctx.currentTime + Math.random());
     const lvl = ctx.createGain(); lvl.gain.value = 0;
-    unit.out.connect(swell); swell.connect(lvl); lvl.connect(bus); unit.start();
-    return { L, unit, swell, lfo, lvl };
+    unit.out.connect(swell); swell.connect(lvl);
+    /* each layer sits at its own slowly wandering place in the stereo field */
+    let pan = null, plfo = null;
+    if (ctx.createStereoPanner) {
+      pan = ctx.createStereoPanner(); pan.pan.value = L.pan; lvl.connect(pan); pan.connect(bus);
+      plfo = ctx.createOscillator(); const pg = ctx.createGain(); plfo.frequency.value = 0.011 + Math.random() * 0.02; pg.gain.value = L.pan === 0 ? 0.12 : 0.18;
+      plfo.connect(pg).connect(pan.pan); plfo.start(ctx.currentTime + Math.random() * 3);
+    } else lvl.connect(bus);
+    unit.start();
+    return { L, unit, swell, lfo, lvl, plfo };
   });
   return {
     model, bus, layers,
-    dispose() { layers.forEach(l => { l.unit.stop(); try { l.lfo.stop(); } catch (e) { } }); try { bus.disconnect(); } catch (e) { } }
+    dispose() { layers.forEach(l => { l.unit.stop(); try { l.lfo.stop(); if (l.plfo) l.plfo.stop(); } catch (e) { } }); try { bus.disconnect(); } catch (e) { } }
   };
 }
 function switchDrone(model) {
@@ -649,7 +668,7 @@ function buildAudio() {
   A.windOut.connect(A.fxIn);
 
   /* precipitation hiss: bright and thin for rain, low and soft for snow */
-  A.rainBP = ctx.createBiquadFilter(); A.rainBP.type = 'bandpass'; A.rainBP.frequency.value = 4200; A.rainBP.Q.value = 0.45;
+  A.rainBP = ctx.createBiquadFilter(); A.rainBP.type = 'bandpass'; A.rainBP.frequency.value = 2600; A.rainBP.Q.value = 0.5;
   A.rainG = ctx.createGain(); A.rainG.gain.value = 0; ls(A.pink).connect(A.rainBP); A.rainBP.connect(A.rainG);
   A.snowLP = ctx.createBiquadFilter(); A.snowLP.type = 'lowpass'; A.snowLP.frequency.value = 850;
   A.snowG = ctx.createGain(); A.snowG.gain.value = 0; ls(A.pink).connect(A.snowLP); A.snowLP.connect(A.snowG);
@@ -683,15 +702,15 @@ function applyAudio(snap) {
 
   const tempF = lin(E.temp, -10, 105, 0.7, 1.35), cloudF = lin(E.cloud, 0, 100, 1.15, 0.72);
   sp(A.filt.frequency, clamp(cfg.cutoff * tempF * cloudF * (0.85 + 0.3 * day), 100, 7000), 1.5);
-  sp(A.filt.Q, 0.6 + (lin(E.hum, 0, 100, 0.05, 0.3) + cfg.resonance) * 14, 1.5);
+  sp(A.filt.Q, 0.5 + (lin(E.hum, 0, 100, 0.03, 0.12) + cfg.resonance) * 9, 1.5);
   sp(A.lfo.frequency, lin(E.wind, 0, 50, 0.006, 0.05) * cfg.lfoMult, 2);
   sp(A.lfoGain.gain, cfg.lfoDepth, 1);
 
   const ampLfo = lin(E.wind, 0, 50, 0.6, 1.7), ps = lin(E.pres, 980, 1040, 1.7, 0.5);
   const throb = throbEnv(E) * 0.25;
   const lv = {
-    sub2: 0.35 + (1 - day) * 0.15, sub1: 0.35 + (1 - day) * 0.15, root: 0.35,
-    oct1: day * 0.25, oct2: day * day * 0.15, bell: 0.04 + day * 0.05,
+    sub2: 0.16 + (1 - day) * 0.12, sub1: 0.30 + (1 - day) * 0.12, root: 0.42,
+    oct1: 0.10 + day * 0.30, oct2: 0.03 + day * day * 0.20, bell: 0.05 + day * 0.08,
   };
   const t = A.ctx.currentTime;
   A.drone.layers.forEach(l => {
@@ -711,7 +730,7 @@ function applyAudio(snap) {
 
   /* rain or snow hiss */
   const amt = lin(E.precip, 0, 1, 0, 0.3) * cfg.precipNoise;
-  sp(A.rainG.gain, E.snow ? 0 : amt * 0.7, 2); sp(A.snowG.gain, E.snow ? amt * 0.9 : 0, 2);
+  sp(A.rainG.gain, E.snow ? 0 : amt * 0.4, 2); sp(A.snowG.gain, E.snow ? amt * 0.7 : 0, 2);
   sp(A.precipOut.gain, 1, 1);
 
   /* space */
@@ -770,6 +789,8 @@ function strikeBell(delay) {
 
 /* ---------- melody: random walk on a scale, density set by the precipitation ---------- */
 const M = { next: 0, deg: 0, last: 0 };
+/* per-voice gains, matched by A-weighted loudness so every voice sits the same distance above the drone */
+const VOICE_GAIN = { string: 4.5, glass: 0.9, kalimba: 2.8, pad: 1.1 };
 const STEP_MULT = [0.5, 0.67, 0.75, 1, 1, 1, 1.33, 1.5, 2];
 function mutateDegree() {
   if (Math.random() < cfg.holdP) { M.last = 0; return; }
@@ -829,9 +850,9 @@ function ksBuffer(ctx, f, decay, coef, bright) {
 }
 function playNote(freq, when, E) {
   const ctx = A.ctx, snow = E.snow, wsec = Math.max(when, ctx.currentTime + 0.01);
-  const decay = (snow ? 2.8 : 0.5) * cfg.decayScale, atk = snow ? 0.09 : 0.002, coef = snow ? 0.22 : 0.1;
+  const decay = (snow ? 2.8 : 0.9) * cfg.decayScale, atk = snow ? 0.09 : 0.002, coef = snow ? 0.22 : 0.1;
   const amp = 0.3 * lin(E.precip, 0, 1, 0.5, 1) * (0.85 + Math.random() * 0.3);
-  const out = ctx.createGain(); out.gain.value = amp;
+  const out = ctx.createGain(); out.gain.value = amp * (VOICE_GAIN[cfg.mvoice] || 1);
   const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
   if (pan) { pan.pan.value = rnd(-0.4, 0.4); out.connect(pan); pan.connect(A.melOut); } else out.connect(A.melOut);
   const end = wsec + decay * 1.3 + 0.6;
@@ -839,11 +860,13 @@ function playNote(freq, when, E) {
   const v = cfg.mvoice;
 
   if (v === 'string') {
-    const bright = clamp(cfg.mbright * (1 - atk * 3), 0.1, 1);
+    const bright = clamp(cfg.mbright * (snow ? 0.3 : 1), 0.06, 1);   /* snow is plucked with a soft, dark excitation */
+    const env = ctx.createGain(); env.connect(out);
+    env.gain.setValueAtTime(0, wsec); env.gain.linearRampToValueAtTime(1, wsec + atk + 0.004);
     [[1, 0.7], [1.003, 0.5]].forEach(([r, gn]) => {
       const s = ctx.createBufferSource(), g = ctx.createGain();
-      s.buffer = ksBuffer(ctx, freq * r, decay * (r > 1 ? 0.92 : 1), coef, bright); g.gain.value = gn;
-      s.connect(g).connect(out); s.start(wsec);
+      s.buffer = ksBuffer(ctx, freq * r, decay * (r > 1 ? 0.92 : 1), coef, bright); g.gain.value = gn ;
+      s.connect(g).connect(env); s.start(wsec);
     });
   } else if (v === 'glass') {
     const c = ctx.createOscillator(), m = ctx.createOscillator(), mg = ctx.createGain(), e = ctx.createGain();

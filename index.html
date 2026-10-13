@@ -225,21 +225,21 @@ const PRESETS = [
 ];
 
 const cfg0 = {
-  place: 0, lat: 42.37083, lon: -71.18333, useLive: true,
+  place: 0, lat: 42.37083, lon: -71.18333, useLive: true, geoAsked: false, placeName: '',
   /* drone */
   model: 'blend', root: DEFAULT_ROOT, tA: 0.25, tB: 0.35, droneLevel: 1,
   trimSub2: 1, trimSub1: 1, trimRoot: 1, trimOct1: 1, trimOct2: 1, trimBell: 1,
-  cutoff: 1400, resonance: 0, lfoDepth: 400, lfoMult: 1, glideMult: 1,
+  cutoff: 1400, resonance: 0, lfoDepth: 400, lfoMult: 0.6, glideMult: 1,
   drift: true, driftInterval: 1, driftRange: 1,
   /* melody */
-  melodyOn: true, mvoice: 'string', mscale: 0, bpm: 120, mlevel: 1, density: 1, octave: 0,
-  wander: 1, pull: 1, holdP: 0.15, dryFloor: 0.08, decayScale: 1, mbright: 0.6, precipMode: 'auto',
+  melodyOn: true, melodyMode: 'loops', mvoice: 'glass', mscale: 0, bpm: 72, mlevel: 1, density: 0.85, octave: 0,
+  wander: 0.8, pull: 1, holdP: 0.25, dryFloor: 0.12, decayScale: 1.8, mbright: 0.6, precipMode: 'auto',
   /* space */
-  reverbMix: 0.35, reverbSize: 3.5, delayMix: 0.22, delayDiv: 0.75, delayFb: 0.45,
+  reverbMix: 0.5, reverbSize: 6.5, delayMix: 0.16, delayDiv: 1.5, delayFb: 0.5,
   windLevel: 0.8, precipNoise: 0.8, bellLevel: 1, hourlyBell: true, master: 0.7,
   depth: { temp: 1, wind: 1, humidity: 1, precip: 1, pressure: 1, cloud: 1, time: 1, moon: 1 },
 };
-const STORE_KEY = 'bell-weather-v1';
+const STORE_KEY = 'bell-weather-v2';   /* bumped so the new, slower defaults take effect */
 const cfg = JSON.parse(JSON.stringify(cfg0));
 try {
   const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
@@ -369,6 +369,10 @@ function simStep(dt) {
   }
 }
 
+function placeLabel() {
+  if (cfg.place >= 0 && PLACES[cfg.place]) return PLACES[cfg.place][0];
+  return cfg.placeName || (cfg.lat.toFixed(1) + ', ' + cfg.lon.toFixed(1));
+}
 let fetchBusy = false;
 async function fetchLive() {
   if (fetchBusy) return;
@@ -390,7 +394,7 @@ async function fetchLive() {
     for (const k in v) if (!Number.isFinite(v[k])) throw new Error('bad field ' + k);
     Object.assign(S.wx, v);
     S.source = 'live'; S.liveAt = Date.now();
-    S.statusMsg = 'Live from Open-Meteo for ' + (PLACES[cfg.place] ? PLACES[cfg.place][0] : cfg.lat.toFixed(2) + ', ' + cfg.lon.toFixed(2));
+    S.statusMsg = 'Live from Open-Meteo for ' + placeLabel();
   } catch (e) {
     S.source = 'sim';
     S.statusMsg = 'Live weather could not load here, so the sky is simulated. Host this page on the open web for the real thing.';
@@ -477,19 +481,22 @@ function makeUnit(model, f0) {
   const ctx = A.ctx, out = ctx.createGain(), nodes = [];
   out.gain.value = model === 'sine' ? 1 : (MODELS[model] ? MODELS[model].trim : 1);
   const T = (p, v, t, tau) => { if (Number.isFinite(v)) p.setTargetAtTime(v, t, Math.max(0.01, tau)); };
+  /* pitch moves go through an eased curve rather than an exponential chase, so a glide leaves gently,
+     travels, and settles gently, instead of lurching off at full speed and creeping in */
+  const P = (p, v, t, tau) => { if (Number.isFinite(v)) easeParam(p, v, t, GLIDE || Math.max(0.05, tau * 3)); };
   const osc = (type) => { const o = ctx.createOscillator(); if (type) o.type = type; o.frequency.value = f0; nodes.push(o); return o; };
   const U = { out, f: f0, setFreq() { }, setTimbre() { } };
 
   if (model === 'sine') {
     const o = osc('sine'); o.connect(out);
-    U.setFreq = (f, t, tau) => T(o.frequency, f, t, tau);
+    U.setFreq = (f, t, tau) => P(o.frequency, f, t, tau);
   } else if (model === 'blend') {
     const o1 = osc('sine'), o2 = osc('sawtooth'), g1 = ctx.createGain(), g2 = ctx.createGain();
     g1.gain.value = 0.775; g2.gain.value = 0.225;
     o1.connect(g1).connect(out); o2.connect(g2).connect(out);
     let beat = 0.15;
     const det = (t, tau) => T(o2.detune, 1200 * Math.log2(1 + beat / Math.max(20, U.f)), t, tau);
-    U.setFreq = (f, t, tau) => { U.f = f; T(o1.frequency, f, t, tau); T(o2.frequency, f, t, tau); det(t, tau); };
+    U.setFreq = (f, t, tau) => { U.f = f; P(o1.frequency, f, t, tau); P(o2.frequency, f, t, tau); det(t, tau); };
     /* the chorus is a fixed slow beat (under half a hertz) on every layer, so the upper octaves shimmer instead of wobbling */
     U.setTimbre = (a, b, ps, t) => { T(g1.gain, 1 - a * 0.9, t, 0.4); T(g2.gain, a * 0.9, t, 0.4); beat = clamp(b * ps, 0, 1.6) * 0.3 + 0.02; det(t, 0.4); };
   } else if (model === 'supersaw') {
@@ -497,7 +504,7 @@ function makeUnit(model, f0) {
     /* a key-tracked lowpass takes the fizz off the saw stack, about six harmonics up */
     const tone = ctx.createBiquadFilter(); tone.type = 'lowpass'; tone.Q.value = 0.5; tone.frequency.value = Math.min(16000, f0 * 6); tone.connect(out);
     os.forEach((o, i) => o.connect(gs[i]).connect(tone));
-    U.setFreq = (f, t, tau) => { os.forEach(o => T(o.frequency, f, t, tau)); T(tone.frequency, Math.min(16000, f * 6), t, tau); };
+    U.setFreq = (f, t, tau) => { os.forEach(o => P(o.frequency, f, t, tau)); P(tone.frequency, Math.min(16000, f * 6), t, tau); };
     U.setTimbre = (a, b, ps, t) => {
       const c = clamp(a * ps, 0, 1.7) * 40;
       T(os[0].detune, -c, t, 0.4); T(os[2].detune, c, t, 0.4);
@@ -517,19 +524,19 @@ function makeUnit(model, f0) {
     let ratio = 1.5, idx = 1.5;
     const apply = (t, tau) => { T(rG.gain, ratio, t, tau); T(dG.gain, ratio * idx, t, tau); T(dG2.gain, ratio * idx * 0.35, t, tau); };
     rG.gain.value = ratio; dG.gain.value = ratio * idx; dG2.gain.value = ratio * idx * 0.35;
-    U.setFreq = (f, t, tau) => { U.f = f; T(pitch.offset, f, t, tau); };
+    U.setFreq = (f, t, tau) => { U.f = f; P(pitch.offset, f, t, tau); };
     U.setTimbre = (a, b, ps, t) => { ratio = 0.5 + a * 4.5; idx = b * 5; apply(t, 0.4); };
   } else if (model === 'organ') {
     const o = osc(); let la = -9, lb = -9;
     o.connect(out);
-    U.setFreq = (f, t, tau) => T(o.frequency, f, t, tau);
+    U.setFreq = (f, t, tau) => P(o.frequency, f, t, tau);
     U.setTimbre = (a, b) => { if (Math.abs(a - la) > 0.025 || Math.abs(b - lb) > 0.025) { o.setPeriodicWave(organWave(ctx, a, b)); la = a; lb = b; } };
     o.setPeriodicWave(organWave(ctx, 0.5, 0.4));
   } else if (model === 'pulse') {
     const o1 = osc(), o2 = osc(), g = ctx.createGain(); let lw = -9;
     const tone = ctx.createBiquadFilter(); tone.type = 'lowpass'; tone.Q.value = 0.5; tone.frequency.value = Math.min(16000, f0 * 7);
     g.gain.value = 0.5; o1.connect(g); o2.connect(g); g.connect(tone); tone.connect(out);
-    U.setFreq = (f, t, tau) => { T(o1.frequency, f, t, tau); T(o2.frequency, f, t, tau); T(tone.frequency, Math.min(16000, f * 7), t, tau); };
+    U.setFreq = (f, t, tau) => { P(o1.frequency, f, t, tau); P(o2.frequency, f, t, tau); P(tone.frequency, Math.min(16000, f * 7), t, tau); };
     U.setTimbre = (a, b, ps, t) => {
       const w = 0.1 + a * 0.4;
       if (Math.abs(w - lw) > 0.012) { o1.setPeriodicWave(pulseWave(ctx, w)); o2.setPeriodicWave(pulseWave(ctx, clamp(w + 0.13, 0.1, 0.5))); lw = w; }
@@ -544,7 +551,7 @@ function makeUnit(model, f0) {
       const f = ctx.createBiquadFilter(), g = ctx.createGain(); f.type = 'bandpass'; f.frequency.value = VOWELS[0][i]; f.Q.value = 8;
       g.gain.value = [1, 0.6, 0.35][i]; o.connect(f); f.connect(g).connect(out); return f;
     });
-    U.setFreq = (f, t, tau) => T(o.frequency, f, t, tau);
+    U.setFreq = (f, t, tau) => P(o.frequency, f, t, tau);
     U.setTimbre = (a, b, ps, t) => {
       const pos = clamp(a, 0, 1) * 4, i0 = Math.floor(pos), i1 = Math.min(4, i0 + 1), fr = pos - i0;
       fl.forEach((f, k) => { T(f.frequency, lerp(VOWELS[i0][k], VOWELS[i1][k], fr), t, 0.6); T(f.Q, 3 + b * 14, t, 0.6); });
@@ -560,7 +567,7 @@ function makeUnit(model, f0) {
     let q = 100, ov = 0.3;
     const nb = (f, qq) => 0.6 / (0.577 * Math.sqrt(1.5708 * f / qq / (ctx.sampleRate / 2)));
     const gains = (t, tau, f) => { f = Math.max(20, f || f1.frequency.value); T(g1.gain, nb(f, q), t, tau); T(g2.gain, nb(f * 3, q * 0.8) * ov * 0.5, t, tau); };
-    U.setFreq = (f, t, tau) => { U.f = f; T(f1.frequency, f, t, tau); T(f2.frequency, f * 3, t, tau); gains(t, tau, f); };
+    U.setFreq = (f, t, tau) => { U.f = f; P(f1.frequency, f, t, tau); P(f2.frequency, f * 3, t, tau); gains(t, tau, f); };
     U.setTimbre = (a, b, ps, t) => { q = 15 + a * 235; ov = b; T(f1.Q, q, t, 0.5); T(f2.Q, q * 0.8, t, 0.5); gains(t, 0.5); };
   }
   U.start = () => nodes.forEach(n => { if (n instanceof AudioBufferSourceNode) n.start(0, Math.random() * (n.buffer.duration - 0.05)); else n.start(); });
@@ -604,6 +611,17 @@ function switchDrone(model) {
 }
 
 /* ---------- drone pitch, drift ---------- */
+let GLIDE = 0;        /* seconds; set while a drift glide is being scheduled */
+function easeParam(p, to, t, dur) {
+  const from = p.value;
+  if (p.cancelAndHoldAtTime) p.cancelAndHoldAtTime(t); else { p.cancelScheduledValues(0); p.setValueAtTime(from, t); }
+  const n = Math.max(16, Math.min(512, Math.ceil(dur * 12))), c = new Float32Array(n), logf = from > 0 && to > 0;
+  for (let i = 0; i < n; i++) {
+    const x = i / (n - 1), e = 0.5 - 0.5 * Math.cos(Math.PI * x);       /* raised-cosine ease in and out */
+    c[i] = logf ? from * Math.pow(to / from, e) : from + (to - from) * e;   /* even in pitch, not in hertz */
+  }
+  try { p.setValueCurveAtTime(c, t + 0.005, dur); } catch (err) { p.setTargetAtTime(to, t, dur / 4); }
+}
 const D = { deg: 0, timer: 25 };
 function scaleSemis(deg) {
   const sc = SCALES[cfg.mscale][1], n = sc.length, oct = Math.floor(deg / n), idx = ((deg % n) + n) % n;
@@ -613,11 +631,13 @@ const droneHz = () => ROOTS[cfg.root].hz * Math.pow(2, scaleSemis(D.deg) / 12);
 function setDroneFreq(glideSec) {
   if (!A || !A.drone) return;
   const t = A.ctx.currentTime, hz = droneHz();
-  A.drone.layers.forEach(l => l.unit.setFreq(hz * l.L.ratio, t, glideSec / 3));
+  GLIDE = Math.max(0.5, glideSec);
+  try { A.drone.layers.forEach(l => l.unit.setFreq(hz * l.L.ratio, t, glideSec / 3)); } finally { GLIDE = 0; }
 }
 function mutateDrone() {
   const n = SCALES[cfg.mscale][1].length;
-  const step = Math.random() < 0.5 ? (Math.random() < 0.5 ? n : -n) : (Math.random() < 0.5 ? 1 : -1) * (1 + Math.floor(Math.random() * 2));
+  const r = Math.random(), sgn = Math.random() < 0.5 ? 1 : -1;
+  const step = sgn * (r < 0.55 ? 1 : r < 0.87 ? 2 : n);
   const lim = Math.round(n * cfg.driftRange);
   D.deg = clamp(D.deg + step, -lim, lim);
 }
@@ -762,8 +782,10 @@ function tick() {
     D.timer -= dt;
     if (D.timer <= 0) {
       mutateDrone();
-      D.timer = Math.max(8, Math.max(30, lin(E.hum, 0, 100, 90, 30)) * cfg.driftInterval * (120 / cfg.bpm));
-      setDroneFreq(lin(E.hum, 0, 100, 4, 26) * cfg.glideMult);
+      /* long rests between moves, longer glides in damp air; a glide never runs into the next move */
+      const rest = Math.max(20, lin(E.hum, 0, 100, 150, 60) * cfg.driftInterval * rnd(0.75, 1.3));
+      const glide = Math.min(rest * 0.8, lin(E.hum, 0, 100, 16, 42) * cfg.glideMult);
+      D.timer = rest; setDroneFreq(glide);
     }
   }
   const h = Math.floor(E.hour);
@@ -813,9 +835,38 @@ function melodyActivity(E) {
 const stepBeats = act => act <= 0 ? 4 : lin(clamp(act, 0.001, 1), 0.001, 1, 2.5, 0.4) * pick(STEP_MULT);
 const density = act => act <= 0 ? 0 : lin(clamp(act, 0.001, 1), 0.001, 1, 0.4, 0.85) * cfg.density;
 
+/* Airports mode: a handful of single-note loops, each repeating on its own long, unrelated period.
+   Like tape loops of different lengths, they drift in and out of phase, so the melody is never quite
+   the same twice. Rain shortens every loop; dry weather lets some repeats fall silent. */
+const LOOPS = { list: [], scale: -1 };
+const LOOP_PERIODS = [17.8, 20.1, 23.4, 26.6, 31.9, 36.3, 41.7];
+function initLoops(now) {
+  const n = SCALES[cfg.mscale][1].length;
+  const degs = [-n + 2, 0, 2, Math.min(4, n - 1), n, n + 1, n + 3];
+  LOOPS.scale = cfg.mscale;
+  LOOPS.list = LOOP_PERIODS.map((p, i) => ({ period: p * rnd(0.97, 1.03), deg: degs[i], next: now + rnd(0.5, p * 0.6), home: degs[i] }));
+}
+function loopsTick(E, now, ahead) {
+  if (LOOPS.scale !== cfg.mscale || !LOOPS.list.length) initLoops(now);
+  const act = melodyActivity(E), n = SCALES[cfg.mscale][1].length;
+  const scale = lin(act, 0, 1, 1.25, 0.5) / clamp(cfg.density, 0.2, 2);
+  for (const L of LOOPS.list) {
+    if (L.next < now - 1) L.next = now + rnd(0.2, 2);
+    if (L.next >= now + ahead) continue;
+    if (act > 0 && !S.muted && Math.random() > (1 - act) * 0.3) {
+      if (Math.random() < 0.05 * cfg.wander) L.deg = clamp(L.deg + (Math.random() < 0.5 ? -1 : 1), -n, 2 * n);
+      else if (L.deg !== L.home && Math.random() < 0.08 * cfg.pull) L.deg += L.home > L.deg ? 1 : -1;
+      playNote(melFreq(L.deg), L.next, E);
+      vis.notes.push({ t: L.next, deg: L.deg, snow: E.snow });
+    }
+    L.next += L.period * scale;
+  }
+}
+
 function melodyTick() {
   if (!A || A.ctx.state !== 'running') return;
   const E = A.E || effective(), now = A.ctx.currentTime, ahead = document.hidden ? 1.6 : 0.3;
+  if (cfg.melodyMode === 'loops') { loopsTick(E, now, ahead); return; }
   if (M.next < now) M.next = now + 0.05;
   let guard = 0;
   while (M.next < now + ahead && guard++ < 12) {
@@ -1223,6 +1274,7 @@ function buildDroneUI() {
 function buildMelodyUI() {
   const p = $('#mel-ctl');
   toggle(p, 'Melody on', 'melodyOn');
+  select(p, 'Melody style', 'melodyMode', [['loops', 'Airports (drifting loops)'], ['walk', 'Wandering line']]);
   select(p, 'Voice', 'mvoice', [['string', 'Plucked string'], ['glass', 'Glass bell'], ['kalimba', 'Kalimba'], ['pad', 'Soft pad']]);
   select(p, 'Scale', 'mscale', SCALES.map((s, i) => [i, s[0]]), () => { M.deg = 0; }, true);
   select(p, 'Precipitation type', 'precipMode', [['auto', 'Auto (snow at or below 32°F)'], ['rain', 'Always rain'], ['snow', 'Always snow']]);
@@ -1283,28 +1335,24 @@ function buildWeatherUI() {
   const pl = $('#place');
   PLACES.forEach(([n], i) => pl.appendChild(el('option', { value: i, text: n })));
   pl.appendChild(el('option', { value: -1, text: 'Custom' }));
-  const syncPlace = () => { pl.value = String(cfg.place); $('#lat').value = cfg.lat.toFixed(2); $('#lon').value = cfg.lon.toFixed(2); };
+  const custom = () => pl.querySelector('option[value="-1"]');
+  const syncPlace = window.syncPlace = () => { custom().textContent = cfg.placeName || 'Custom'; pl.value = String(cfg.place); $('#lat').value = cfg.lat.toFixed(2); $('#lon').value = cfg.lon.toFixed(2); };
   syncPlace();
   pl.addEventListener('change', () => {
     const i = parseInt(pl.value, 10);
-    if (i >= 0) { cfg.place = i; cfg.lat = PLACES[i][1]; cfg.lon = PLACES[i][2]; }
+    if (i >= 0) { cfg.place = i; cfg.lat = PLACES[i][1]; cfg.lon = PLACES[i][2]; cfg.placeName = ''; }
     else cfg.place = -1;
     syncPlace(); saveCfg(); scheduleLive();
   });
   const onLL = () => {
     const la = parseFloat($('#lat').value), lo = parseFloat($('#lon').value);
-    if (Number.isFinite(la) && Number.isFinite(lo)) { cfg.lat = clamp(la, -90, 90); cfg.lon = clamp(lo, -180, 180); cfg.place = -1; pl.value = '-1'; saveCfg(); scheduleLive(); }
+    if (Number.isFinite(la) && Number.isFinite(lo)) { cfg.lat = clamp(la, -90, 90); cfg.lon = clamp(lo, -180, 180); cfg.place = -1; cfg.placeName = ''; pl.value = '-1'; saveCfg(); scheduleLive(); }
   };
   $('#lat').addEventListener('change', onLL); $('#lon').addEventListener('change', onLL);
   $('#src').value = cfg.useLive ? 'live' : 'sim';
   $('#src').addEventListener('change', e => { cfg.useLive = e.target.value === 'live'; saveCfg(); scheduleLive(); });
   $('#refresh').addEventListener('click', () => { if (cfg.useLive) fetchLive(); });
-  $('#geo').addEventListener('click', () => {
-    if (!navigator.geolocation) { S.statusMsg = 'This browser has no location service.'; return; }
-    S.statusMsg = 'Asking for your location';
-    navigator.geolocation.getCurrentPosition(p => { cfg.lat = p.coords.latitude; cfg.lon = p.coords.longitude; cfg.place = -1; syncPlace(); saveCfg(); scheduleLive(); },
-      () => { S.statusMsg = 'Location was not shared, so the place stays as it was.'; }, { timeout: 8000 });
-  });
+  $('#geo').addEventListener('click', () => locate(false));
 
   const pc = $('#presets');
   PRESETS.forEach(([n, v]) => pc.appendChild(el('button', { class: 'chip', type: 'button', text: n })).addEventListener('click', () => {
@@ -1376,6 +1424,8 @@ function wireTransport() {
       return;
     }
     begin.disabled = true; begin.textContent = 'Starting';
+    /* first play: ask once for the listener's location, inside the click so the browser allows the prompt */
+    if (!cfg.geoAsked) { cfg.geoAsked = true; saveCfg(); locate(false); }
     try {
       await buildAudio(); A.E = effective();
       applyAudio(true);
@@ -1410,21 +1460,53 @@ function frame(now) {
     $('#tag-sun').textContent = dayName(E.sunAlt, E.sunHa) + ' · ' + fmtHour(E.hour);
     $('#tag-moon').textContent = moonName(E.moonPhase);
     $('#tag-wx').textContent = Math.round(E.temp) + '°F · ' + (E.precip > 0.05 ? (E.snow ? 'snow ' : 'rain ') + Math.round(E.precip * 100) + '%' : 'dry') + ' · wind ' + Math.round(E.wind);
-    $('#sub').textContent = (cfg.place >= 0 && PLACES[cfg.place] ? PLACES[cfg.place][0] : cfg.lat.toFixed(1) + ', ' + cfg.lon.toFixed(1)) + ' · ' + (S.source === 'live' ? 'live sky' : 'simulated sky');
+    $('#sub').textContent = placeLabel() + ' · ' + (S.source === 'live' ? 'live sky' : 'simulated sky');
     $('#status-text').textContent = S.statusMsg; $('#status').classList.toggle('live', S.source === 'live');
   }
   requestAnimationFrame(frame);
 }
 
+/* ---------- the listener's own sky ---------- */
+/* Coordinates are rounded to about a kilometre before use: plenty for weather, and less precise than the browser gives. */
+async function nameFor(lat, lon) {
+  try {
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 6000);
+    const r = await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=' + lat + '&longitude=' + lon + '&localityLanguage=en', { signal: ctl.signal });
+    clearTimeout(to); if (!r.ok) throw 0;
+    const j = await r.json(), town = j.city || j.locality, region = j.principalSubdivisionCode ? j.principalSubdivisionCode.split('-').pop() : j.countryName;
+    return town ? town + (region ? ', ' + region : '') : '';
+  } catch (e) { return ''; }
+}
+function locate(quiet) {
+  if (!navigator.geolocation) { if (!quiet) S.statusMsg = 'This browser has no location service, so the place stays as it was.'; return; }
+  if (!quiet) S.statusMsg = 'Asking your browser where you are';
+  navigator.geolocation.getCurrentPosition(async p => {
+    cfg.lat = Math.round(p.coords.latitude * 100) / 100; cfg.lon = Math.round(p.coords.longitude * 100) / 100;
+    cfg.place = -1; cfg.placeName = 'Your location';
+    window.syncPlace(); saveCfg(); scheduleLive();
+    const n = await nameFor(cfg.lat, cfg.lon);
+    if (n && cfg.place === -1) { cfg.placeName = n; window.syncPlace(); saveCfg(); if (S.source === 'live') S.statusMsg = 'Live from Open-Meteo for ' + n; }
+  }, () => { if (!quiet) S.statusMsg = 'Location was not shared, so the sky stays over ' + placeLabel() + '. Pick a place below.'; },
+  { timeout: 10000, maximumAge: 30 * 60e3, enableHighAccuracy: false });
+}
+/* if this person already allowed location before, follow them silently (no prompt) */
+async function followIfAllowed() {
+  try {
+    if (!navigator.permissions || !navigator.geolocation) return;
+    const st = await navigator.permissions.query({ name: 'geolocation' });
+    if (st.state === 'granted' && (cfg.place === -1 || !cfg.geoAsked)) { cfg.geoAsked = true; locate(true); }
+  } catch (e) { }
+}
+
 function boot() {
   buildDroneUI(); buildMelodyUI(); buildFxUI(); buildMapUI(); buildWeatherUI(); wireTransport();
-  initVisual(); scheduleLive();
+  initVisual(); scheduleLive(); followIfAllowed();
   /* keep the visible simulated sky moving even when live is off */
   requestAnimationFrame(t => { lastT = t; frame(t); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) lastT = performance.now(); });
 }
 boot();
-window.__bw = { get A() { return A; }, S, cfg, effective, switchDrone, playNote, strikeBell, MODELS, M, vis, V };
+window.__bw = { get A() { return A; }, D, setDroneFreq, mutateDrone, LOOPS, S, cfg, effective, switchDrone, playNote, strikeBell, MODELS, M, vis, V };
 
 </script>
 </body>

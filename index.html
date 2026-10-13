@@ -1,0 +1,1408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="A drone and ambient melody machine played by the weather, the sun and the moon.">
+<title>Bell Weather</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout concept: a weather station that sings. A living sky is the hero, the
+   ridge line in it is the live spectrum, and the controls sit below as engraved
+   brass-and-glass instrument plates. */
+:root{
+  --bg:#080c14; --fg:#e9eef6; --muted:#a3afc3; --faint:#74819a;
+  --panel:rgba(11,17,28,.7); --panel-hi:rgba(22,32,49,.82);
+  --line:rgba(205,218,238,.15); --line-hi:rgba(205,218,238,.32);
+  --brass:#d9aa60; --brass-hi:#f4d392; --brass-ink:#1c1406;
+  --rain:#8ec1e6; --snow:#e8f0fa; --ok:#93d3a2; --warn:#e6a85f;
+  --sky-top:#0a1020; --sky-bot:#17243b;
+  --f-display:"Instrument Serif","Iowan Old Style","Palatino Linotype",Georgia,serif;
+  --f-ui:"Hanken Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--f-ui);padding-inline:16px;padding-block:22px 64px;position:relative;min-height:100%}
+body::before{content:"";position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,var(--sky-top) 0%,var(--sky-bot) 52%,var(--bg) 100%)}
+.wrap{max-width:1220px;margin-inline:auto}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--brass-hi);outline-offset:2px}
+
+.top{display:flex;flex-wrap:wrap;gap:18px 28px;align-items:flex-end;justify-content:space-between}
+.brand{min-width:0}
+h1{font:400 clamp(44px,8vw,84px)/.95 var(--f-display);letter-spacing:-.015em;margin:0}
+h1 em{font-style:italic;color:var(--brass-hi)}
+.sub{margin:10px 0 0;font:500 11.5px/1.6 var(--f-mono);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);max-width:60ch}
+.transport{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.btn{border:1px solid var(--line-hi);background:rgba(12,19,32,.55);border-radius:999px;padding:9px 18px;font-weight:500;font-size:13.5px;cursor:pointer;transition:background .15s,border-color .15s}
+.btn:hover:not(:disabled){background:var(--panel-hi);border-color:var(--brass)}
+.btn:disabled{opacity:.42;cursor:default}
+.btn.primary{background:var(--brass);border-color:var(--brass);color:var(--brass-ink);font-weight:600}
+.btn.primary:hover:not(:disabled){background:var(--brass-hi);border-color:var(--brass-hi)}
+.btn[aria-pressed=true]{border-color:var(--brass);color:var(--brass-hi)}
+.master{display:flex;align-items:center;gap:10px;font:500 11px var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.master input{width:110px;accent-color:var(--brass)}
+.meter{width:70px;height:6px;border-radius:3px;background:rgba(205,218,238,.12);overflow:hidden}
+.meter i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--ok),var(--brass-hi))}
+
+.sky{position:relative;margin-block:20px 18px;height:clamp(280px,46vw,460px);border-radius:20px;overflow:hidden;border:1px solid var(--line);box-shadow:0 18px 60px -28px rgba(0,0,0,.8)}
+.sky canvas{display:block;width:100%;height:100%}
+.tags{position:absolute;left:14px;right:14px;top:12px;display:flex;flex-wrap:wrap;gap:6px 8px;pointer-events:none}
+.tag{font:500 10.5px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:999px;background:rgba(6,10,18,.5);border:1px solid var(--line);color:var(--fg);backdrop-filter:blur(6px)}
+.hint-start{position:absolute;inset:auto 0 18px 0;text-align:center;font:italic 22px var(--f-display);color:rgba(255,255,255,.82);text-shadow:0 2px 18px rgba(0,0,0,.6);pointer-events:none}
+
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:16px;align-items:start}
+.panel{background:var(--panel);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:18px;padding:18px 20px 22px;min-width:0}
+.panel h2{display:flex;align-items:center;gap:12px;margin:0 0 6px;font:500 11.5px var(--f-mono);letter-spacing:.2em;text-transform:uppercase;color:var(--brass)}
+.panel h2::after{content:"";flex:1;height:1px;background:var(--line)}
+.panel h3{margin:18px 0 2px;font:500 10.5px var(--f-mono);letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+.note{margin:6px 0 0;font-size:12.5px;line-height:1.5;color:var(--muted)}
+.note b{color:var(--fg);font-weight:500}
+
+.ctl{display:grid;gap:3px;margin-block:11px}
+.ctl .lab{display:flex;justify-content:space-between;gap:10px;font-size:13px;color:var(--muted)}
+.ctl output{font:500 12px var(--f-mono);color:var(--fg);white-space:nowrap}
+input[type=range]{width:100%;accent-color:var(--brass);margin:0;height:22px}
+.row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;margin-block:11px}
+.row>label{font-size:13px;color:var(--muted)}
+select,.num{background:#0b1220;border:1px solid var(--line-hi);border-radius:9px;padding:7px 10px;font-size:13.5px;min-width:0;max-width:100%}
+.num{width:96px;font-family:var(--f-mono);font-size:12.5px}
+.sw{appearance:none;-webkit-appearance:none;width:38px;height:22px;border-radius:999px;background:rgba(205,218,238,.18);position:relative;cursor:pointer;transition:background .15s;margin:0;flex:none}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:var(--fg);transition:transform .15s}
+.sw:checked{background:var(--brass)}
+.sw:checked::after{transform:translateX(16px);background:var(--brass-ink)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-block:10px}
+.chip{border:1px solid var(--line-hi);background:transparent;border-radius:999px;padding:5px 11px;font:500 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);cursor:pointer}
+.chip:hover{border-color:var(--brass);color:var(--fg)}
+.chip[aria-pressed=true]{background:rgba(217,170,96,.16);border-color:var(--brass);color:var(--brass-hi)}
+.wx{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:center;margin-block:13px}
+.wx .head{grid-column:1/-1;display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+.wx .head output{font:500 13px var(--f-mono);color:var(--fg)}
+.status{margin-top:8px;font:500 11px/1.55 var(--f-mono);letter-spacing:.04em;color:var(--muted)}
+.status .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;background:var(--warn)}
+.status.live .dot{background:var(--ok)}
+details{margin-top:14px;border-top:1px solid var(--line);padding-top:4px}
+summary{cursor:pointer;padding-block:8px;font:500 10.5px var(--f-mono);letter-spacing:.16em;text-transform:uppercase;color:var(--faint);list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"+ ";color:var(--brass)}
+details[open] summary::before{content:"\2212  "}
+.map{display:grid;grid-template-columns:minmax(0,1fr) minmax(110px,150px);gap:2px 14px;align-items:center;margin-block:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.map:last-child{border-bottom:0}
+.map .what b{display:block;font-weight:500;font-size:13.5px}
+.map .what span{font-size:12px;color:var(--muted);line-height:1.4}
+.gridcv{display:block;width:100%;aspect-ratio:2/1;border-radius:12px;background:#060a11;border:1px solid var(--line);margin-block:10px 4px}
+footer{margin-top:26px;font-size:12px;color:var(--faint);max-width:80ch}
+@media (max-width:520px){.panel{padding-inline:16px}.map{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Bell <em>Weather</em></h1>
+      <p class="sub" id="sub">Reading the sky</p>
+    </div>
+    <div class="transport" role="group" aria-label="Transport">
+      <button id="begin" class="btn primary" type="button">Begin</button>
+      <button id="strike" class="btn" type="button" disabled>Strike bell</button>
+      <button id="mute" class="btn" type="button" aria-pressed="false" disabled>Mute</button>
+      <label class="master"><span>Master</span><input id="master" type="range" min="0" max="1" step="0.01" value="0.7"></label>
+      <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+    </div>
+  </header>
+
+  <section class="sky" aria-label="Live sky. The ridge line is the sound spectrum.">
+    <canvas id="sky"></canvas>
+    <div class="tags"><span class="tag" id="tag-sun"></span><span class="tag" id="tag-moon"></span><span class="tag" id="tag-wx"></span></div>
+    <div class="hint-start" id="hint-start">Press Begin to hear the weather</div>
+  </section>
+
+  <div class="cols">
+    <section class="panel" id="p-wx" aria-labelledby="h-wx">
+      <h2 id="h-wx">Conditions</h2>
+      <div class="row"><label for="src">Source</label>
+        <select id="src"><option value="live">Live (Open-Meteo)</option><option value="sim">Simulated sky</option></select></div>
+      <div class="row"><label for="place">Place</label><select id="place"></select></div>
+      <div class="row"><label for="lat">Lat / Lon</label>
+        <span><input class="num" id="lat" type="number" step="0.01" min="-90" max="90"> <input class="num" id="lon" type="number" step="0.01" min="-180" max="180"></span></div>
+      <div class="chips"><button class="chip" id="geo" type="button">Use my location</button><button class="chip" id="refresh" type="button">Refresh weather</button></div>
+      <div class="status" id="status"><span class="dot"></span><span id="status-text">Starting</span></div>
+      <h3>Presets (hold the sky)</h3>
+      <div class="chips" id="presets"></div>
+      <div id="wx-vars"></div>
+      <h3>Time of day and moon</h3>
+      <div id="wx-time"></div>
+    </section>
+
+    <section class="panel" id="p-drone" aria-labelledby="h-drone">
+      <h2 id="h-drone">Drone</h2>
+      <div id="drone-ctl"></div>
+    </section>
+
+    <section class="panel" id="p-mel" aria-labelledby="h-mel">
+      <h2 id="h-mel">Melody</h2>
+      <canvas id="gridcv" class="gridcv" aria-label="Melody grid: notes fall like rain or settle like snow"></canvas>
+      <p class="note">Each note drops down the grid. Rain runs off quickly. Snow drifts and piles up in columns before melting.</p>
+      <div id="mel-ctl"></div>
+    </section>
+
+    <section class="panel" id="p-fx" aria-labelledby="h-fx">
+      <h2 id="h-fx">Space and air</h2>
+      <div id="fx-ctl"></div>
+    </section>
+
+    <section class="panel" id="p-map" aria-labelledby="h-map">
+      <h2 id="h-map">How the sky shapes the sound</h2>
+      <p class="note">Each slider scales how far that part of the sky pulls the sound away from neutral. Zero ignores it, one is as designed, two exaggerates it. A held (manual) value always applies exactly as set.</p>
+      <div id="map-rows"></div>
+    </section>
+  </div>
+
+  <footer>Weather feeds the sound continuously: warm air opens the filter, wind sweeps it and stirs the gust layer, humidity thickens the glide and the damp, pressure widens the detune, cloud darkens and thickens the space, rain and snow set how often notes fall, the sun sets the harmonic spread, and the moon sends occasional slow swells up from the sub bass. Live weather comes from Open-Meteo and needs this page to be hosted on the open web; inside a sandboxed viewer it runs on a simulated sky instead.</footer>
+</main>
+
+<script>
+/* ================= core: utils, config, state, astronomy, weather ================= */
+const $ = (s, r = document) => r.querySelector(s);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const lin = (v, a, b, c, d) => c + clamp((v - a) / (b - a), 0, 1) * (d - c);
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const smooth = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const RAD = Math.PI / 180;
+const REDUCED = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const ROOTS = [];
+for (let m = 24; m <= 62; m++) ROOTS.push({ midi: m, name: NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1), hz: 440 * Math.pow(2, (m - 69) / 12) });
+const DEFAULT_ROOT = ROOTS.findIndex(r => r.midi === 36);
+
+const SCALES = [
+  ['Major pentatonic', [0, 2, 4, 7, 9]],
+  ['Minor pentatonic', [0, 3, 5, 7, 10]],
+  ['Major', [0, 2, 4, 5, 7, 9, 11]],
+  ['Natural minor', [0, 2, 3, 5, 7, 8, 10]],
+  ['Dorian', [0, 2, 3, 5, 7, 9, 10]],
+  ['Lydian', [0, 2, 4, 6, 7, 9, 11]],
+  ['Whole tone', [0, 2, 4, 6, 8, 10]],
+  ['Hirajoshi', [0, 2, 3, 7, 8]],
+  ['Suspended', [0, 2, 5, 7, 10]],
+];
+
+const PLACES = [
+  ['Watertown, MA', 42.37083, -71.18333], ['Boston, MA', 42.36, -71.06], ['New York, NY', 40.71, -74.01],
+  ['Seattle, WA', 47.61, -122.33], ['Reykjavik', 64.15, -21.94], ['London', 51.51, -0.13],
+  ['Tokyo', 35.68, 139.69], ['Cairo', 30.04, 31.24], ['Sydney', -33.87, 151.21],
+];
+
+/* neutral values the weather blends toward when a depth slider is below 1 */
+const DEF = { temp: 60, wind: 3, humidity: 50, precip: 0, pressure: 1015, cloud: 40 };
+const VARS = [
+  { k: 'temp', name: 'Temperature', min: -10, max: 105, step: 1, fmt: v => Math.round(v) + '°F' },
+  { k: 'wind', name: 'Wind', min: 0, max: 50, step: 1, fmt: v => Math.round(v) + ' mph' },
+  { k: 'humidity', name: 'Humidity', min: 0, max: 100, step: 1, fmt: v => Math.round(v) + '%' },
+  { k: 'precip', name: 'Rain or snow chance', min: 0, max: 100, step: 1, fmt: v => Math.round(v) + '%' },
+  { k: 'pressure', name: 'Pressure', min: 980, max: 1040, step: 1, fmt: v => Math.round(v) + ' hPa' },
+  { k: 'cloud', name: 'Cloud cover', min: 0, max: 100, step: 1, fmt: v => Math.round(v) + '%' },
+];
+const PRESETS = [
+  ['Clear', { temp: 68, wind: 4, humidity: 40, precip: 0, pressure: 1022, cloud: 5 }],
+  ['Overcast', { temp: 55, wind: 8, humidity: 72, precip: 10, pressure: 1010, cloud: 95 }],
+  ['Drizzle', { temp: 50, wind: 6, humidity: 86, precip: 45, pressure: 1008, cloud: 92 }],
+  ['Downpour', { temp: 58, wind: 18, humidity: 95, precip: 95, pressure: 998, cloud: 100 }],
+  ['Storm', { temp: 74, wind: 30, humidity: 90, precip: 95, pressure: 992, cloud: 100 }],
+  ['Snowfall', { temp: 26, wind: 6, humidity: 80, precip: 75, pressure: 1012, cloud: 95 }],
+  ['Blizzard', { temp: 14, wind: 36, humidity: 85, precip: 100, pressure: 990, cloud: 100 }],
+  ['Fog', { temp: 44, wind: 1, humidity: 99, precip: 12, pressure: 1018, cloud: 100 }],
+  ['Heat', { temp: 96, wind: 3, humidity: 35, precip: 0, pressure: 1010, cloud: 8 }],
+];
+
+const cfg0 = {
+  place: 0, lat: 42.37083, lon: -71.18333, useLive: true,
+  /* drone */
+  model: 'blend', root: DEFAULT_ROOT, tA: 0.25, tB: 0.35, droneLevel: 1,
+  trimSub2: 1, trimSub1: 1, trimRoot: 1, trimOct1: 1, trimOct2: 1, trimBell: 1,
+  cutoff: 1400, resonance: 0, lfoDepth: 400, lfoMult: 1, glideMult: 1,
+  drift: true, driftInterval: 1, driftRange: 1,
+  /* melody */
+  melodyOn: true, mvoice: 'string', mscale: 0, bpm: 120, mlevel: 1, density: 1, octave: 0,
+  wander: 1, pull: 1, holdP: 0.15, dryFloor: 0.08, decayScale: 1, mbright: 0.6, precipMode: 'auto',
+  /* space */
+  reverbMix: 0.35, reverbSize: 3.5, delayMix: 0.22, delayDiv: 0.75, delayFb: 0.45,
+  windLevel: 0.8, precipNoise: 0.8, bellLevel: 1, hourlyBell: true, master: 0.7,
+  depth: { temp: 1, wind: 1, humidity: 1, precip: 1, pressure: 1, cloud: 1, time: 1, moon: 1 },
+};
+const STORE_KEY = 'bell-weather-v1';
+const cfg = JSON.parse(JSON.stringify(cfg0));
+try {
+  const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+  if (saved) {
+    for (const k of Object.keys(cfg0)) if (k in saved && typeof saved[k] === typeof cfg0[k]) {
+      if (k === 'depth') Object.assign(cfg.depth, saved.depth); else cfg[k] = saved[k];
+    }
+  }
+} catch (e) { /* storage unavailable: fine */ }
+let saveTimer = 0;
+function saveCfg() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(cfg)); } catch (e) { } }, 400);
+}
+
+/* runtime state that is not persisted */
+const S = {
+  wx: { ...DEF, temp: 56, humidity: 70, precip: 35, cloud: 80, pressure: 1011, wind: 7 },
+  hold: {}, held: { ...DEF },
+  moonHold: false, moonPhase: 0.5,
+  source: 'sim', statusMsg: 'Starting', liveAt: 0,
+  timeOffset: 0, timeSpeed: 1, timeDrag: false,
+  muted: false, E: null,
+};
+
+/* ---------- astronomy: sun and moon from first principles ---------- */
+const SYN = 29.530588853;
+const NEW_MOON = Date.UTC(2000, 0, 6, 18, 14, 0);
+function effDate() { return new Date(Date.now() + S.timeOffset); }
+function bodyPos(lam, eps, n, lat, lon) {
+  const dec = Math.asin(Math.sin(eps) * Math.sin(lam));
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam));
+  const gmst = (((280.46061837 + 360.98564736629 * n) % 360) + 360) % 360;
+  const lst = ((gmst + lon) % 360) * RAD;
+  let ha = lst - ra; ha = Math.atan2(Math.sin(ha), Math.cos(ha));
+  const phi = lat * RAD;
+  const alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(ha)) / RAD;
+  return { alt, ha };
+}
+function celestial(d, lat, lon) {
+  const n = d.getTime() / 864e5 + 2440587.5 - 2451545.0;
+  const L = (((280.460 + 0.9856474 * n) % 360) + 360) % 360;
+  const g = (((357.528 + 0.9856003 * n) % 360) + 360) % 360 * RAD;
+  const lam = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * RAD;
+  const eps = (23.439 - 0.0000004 * n) * RAD;
+  const phase = ((((d.getTime() - NEW_MOON) / 864e5) % SYN) + SYN) % SYN / SYN;
+  const sun = bodyPos(lam, eps, n, lat, lon);
+  const moon = bodyPos(lam + phase * 2 * Math.PI, eps, n, lat, lon);
+  return { sun, moon, phase };
+}
+function solarHour(d, lon) {
+  return ((d.getUTCHours() + d.getUTCMinutes() / 60 + d.getUTCSeconds() / 3600 + lon / 15) % 24 + 24) % 24;
+}
+function fmtHour(h) { const hh = Math.floor(h), mm = Math.floor((h - hh) * 60); return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'); }
+function moonName(p) {
+  if (p < 0.03 || p >= 0.97) return 'new moon';
+  if (p < 0.22) return 'waxing crescent';
+  if (p < 0.28) return 'first quarter';
+  if (p < 0.47) return 'waxing gibbous';
+  if (p < 0.53) return 'full moon';
+  if (p < 0.72) return 'waning gibbous';
+  if (p < 0.78) return 'last quarter';
+  return 'waning crescent';
+}
+function dayName(alt, ha) {
+  if (alt < -12) return 'night';
+  if (alt < -4) return ha < 0 ? 'first light' : 'dusk';
+  if (alt < 3) return ha < 0 ? 'sunrise' : 'sunset';
+  if (alt < 14) return ha < 0 ? 'early morning' : 'golden hour';
+  return ha < 0 ? 'morning' : 'afternoon';
+}
+
+/* ---------- effective conditions: everything the sound and picture read ---------- */
+function effective() {
+  const d = effDate();
+  const c = celestial(d, cfg.lat, cfg.lon);
+  let day = smooth((c.sun.alt + 8) / 36);
+  day = clamp(0.5 + (day - 0.5) * cfg.depth.time, 0, 1);
+  const moonPhase = S.moonHold ? S.moonPhase : c.phase;
+  let moon = (1 - Math.cos(moonPhase * 2 * Math.PI)) / 2;
+  moon = clamp(moon * cfg.depth.moon, 0, 1.4);
+  const g = k => S.hold[k] ? S.held[k] : DEF[k] + (S.wx[k] - DEF[k]) * cfg.depth[k];
+  const temp = g('temp'), wind = Math.max(0, g('wind')), hum = clamp(g('humidity'), 0, 100);
+  const precip = clamp(g('precip') / 100, 0, 1), pres = g('pressure'), cloud = clamp(g('cloud'), 0, 100);
+  const snow = cfg.precipMode === 'snow' ? true : cfg.precipMode === 'rain' ? false : temp <= 32;
+  return {
+    d, temp, wind, hum, precip, pres, cloud, snow, day, moon,
+    sunAlt: c.sun.alt, sunHa: c.sun.ha, moonAlt: c.moon.alt, moonHa: c.moon.ha, moonPhase,
+    hour: solarHour(d, cfg.lon),
+  };
+}
+
+/* ---------- weather: live from Open-Meteo, or a slowly evolving simulated sky ---------- */
+const REG = {
+  clear:    { wind: 4,  hum: 42, precip: 2,  pres: 1022, cloud: 8,   t: 3 },
+  fair:     { wind: 8,  hum: 55, precip: 8,  pres: 1016, cloud: 38,  t: 1 },
+  overcast: { wind: 9,  hum: 72, precip: 18, pres: 1010, cloud: 92,  t: -1 },
+  drizzle:  { wind: 7,  hum: 88, precip: 45, pres: 1007, cloud: 95,  t: -2 },
+  rain:     { wind: 15, hum: 93, precip: 85, pres: 1000, cloud: 100, t: -3 },
+  storm:    { wind: 27, hum: 90, precip: 96, pres: 993,  cloud: 100, t: 0 },
+  fog:      { wind: 2,  hum: 98, precip: 10, pres: 1018, cloud: 100, t: -2 },
+  windy:    { wind: 28, hum: 50, precip: 12, pres: 1004, cloud: 55,  t: 0 },
+};
+const NEXT = {
+  clear: ['fair', 'fair', 'windy', 'fog'], fair: ['clear', 'overcast', 'fair', 'windy'],
+  overcast: ['drizzle', 'fair', 'rain', 'fog'], drizzle: ['rain', 'overcast', 'fog', 'drizzle'],
+  rain: ['storm', 'drizzle', 'overcast', 'rain'], storm: ['rain', 'windy', 'overcast'],
+  fog: ['overcast', 'clear', 'drizzle'], windy: ['fair', 'overcast', 'storm', 'clear'],
+};
+let regName = pick(['overcast', 'drizzle', 'rain', 'fair']);
+let regUntil = Date.now() + rnd(240, 540) * 1000;
+const WX_RANGE = { temp: [-10, 105], wind: [0, 50], humidity: [0, 100], precip: [0, 100], pressure: [980, 1040], cloud: [0, 100] };
+
+function simStep(dt) {
+  if (Date.now() > regUntil) { regName = pick(NEXT[regName]); regUntil = Date.now() + rnd(240, 600) * 1000; }
+  const R = REG[regName], d = effDate();
+  const doy = (d - Date.UTC(d.getUTCFullYear(), 0, 0)) / 864e5;
+  const seasonal = 52 - 28 * Math.cos(2 * Math.PI * (doy - 15) / 365) * (cfg.lat >= 0 ? 1 : -1) - Math.abs(cfg.lat) * 0.15;
+  const hr = solarHour(d, cfg.lon);
+  const diurnal = 8 * Math.cos(2 * Math.PI * (hr - 15) / 24);
+  const tgt = { temp: seasonal + diurnal + R.t * 2.5, wind: R.wind, humidity: R.hum, precip: R.precip, pressure: R.pres, cloud: R.cloud };
+  const noise = { temp: 0.12, wind: 0.5, humidity: 0.4, precip: 1.0, pressure: 0.08, cloud: 0.9 };
+  const a = 1 - Math.exp(-dt / 45);
+  for (const k in tgt) {
+    S.wx[k] += (tgt[k] - S.wx[k]) * a + (Math.random() - 0.5) * 2 * noise[k] * Math.sqrt(dt);
+    S.wx[k] = clamp(S.wx[k], WX_RANGE[k][0], WX_RANGE[k][1]);
+  }
+}
+
+let fetchBusy = false;
+async function fetchLive() {
+  if (fetchBusy) return;
+  fetchBusy = true;
+  try {
+    const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + cfg.lat.toFixed(4) + '&longitude=' + cfg.lon.toFixed(4) +
+      '&current=temperature_2m,relative_humidity_2m,precipitation,pressure_msl,wind_speed_10m,cloud_cover' +
+      '&hourly=precipitation_probability&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&forecast_days=2&timezone=auto';
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 9000);
+    const r = await fetch(u, { signal: ctl.signal, cache: 'no-store' }); clearTimeout(to);
+    if (!r.ok) throw new Error('http ' + r.status);
+    const j = await r.json(), c = j.current;
+    let chance = 0;
+    const hrs = j.hourly && j.hourly.time || [];
+    const i = hrs.findIndex(t => t.slice(0, 13) === String(c.time).slice(0, 13));
+    if (i >= 0) chance = j.hourly.precipitation_probability[i] || 0;
+    if (c.precipitation > 0) chance = Math.max(chance, 65);
+    const v = { temp: c.temperature_2m, wind: c.wind_speed_10m, humidity: c.relative_humidity_2m, precip: chance, pressure: c.pressure_msl, cloud: c.cloud_cover };
+    for (const k in v) if (!Number.isFinite(v[k])) throw new Error('bad field ' + k);
+    Object.assign(S.wx, v);
+    S.source = 'live'; S.liveAt = Date.now();
+    S.statusMsg = 'Live from Open-Meteo for ' + (PLACES[cfg.place] ? PLACES[cfg.place][0] : cfg.lat.toFixed(2) + ', ' + cfg.lon.toFixed(2));
+  } catch (e) {
+    S.source = 'sim';
+    S.statusMsg = 'Live weather could not load here, so the sky is simulated. Host this page on the open web for the real thing.';
+  } finally { fetchBusy = false; }
+}
+let liveTimer = 0;
+function scheduleLive() {
+  clearInterval(liveTimer);
+  if (cfg.useLive) { fetchLive(); liveTimer = setInterval(fetchLive, 600000); }
+  else { S.source = 'sim'; S.statusMsg = 'Simulated sky. It drifts through fronts on its own.'; }
+}
+
+/* ================= audio: Web Audio engine ================= */
+let A = null;                    /* live audio graph, built on Begin */
+const vis = { notes: [], ripples: [], shocks: [], bells: 0 };   /* events the picture reads */
+
+const MODELS = {
+  blend:     { name: 'Sine and saw',     a: ['Saw amount', 0.25],     b: ['Chorus', 0.35],        trim: 1.0 },
+  supersaw:  { name: 'Detuned saws',     a: ['Detune', 0.3],          b: ['Side voices', 0.7],    trim: 1.5 },
+  fm:        { name: 'FM glass',         a: ['Modulator ratio', 0.3], b: ['Brightness', 0.25],    trim: 0.77 },
+  organ:     { name: 'Drawbar organ',    a: ['Brightness', 0.5],      b: ['Reed', 0.4],           trim: 0.68 },
+  pulse:     { name: 'Pulse and width',  a: ['Pulse width', 0.5],     b: ['Width motion', 0.4],   trim: 1.35 },
+  choir:     { name: 'Vowel choir',      a: ['Vowel', 0.0],           b: ['Focus', 0.5],          trim: 1.45 },
+  resonator: { name: 'Noise resonator',  a: ['Ring', 0.5],            b: ['Overtone', 0.3],       trim: 2.35 },
+};
+const VOWELS = [[800, 1150, 2900], [400, 1600, 2700], [270, 2140, 2950], [450, 800, 2830], [325, 700, 2700]];
+const LAYERS = [
+  { id: 'sub2', ratio: 0.25, lfo: 0.009, depth: 0.10, trim: 'trimSub2' },
+  { id: 'sub1', ratio: 0.5,  lfo: 0.013, depth: 0.10, trim: 'trimSub1' },
+  { id: 'root', ratio: 1,    lfo: 0.017, depth: 0.075, trim: 'trimRoot' },
+  { id: 'oct1', ratio: 2,    lfo: 0.021, depth: 0.125, trim: 'trimOct1' },
+  { id: 'oct2', ratio: 4,    lfo: 0.026, depth: 0.15, trim: 'trimOct2' },
+  { id: 'bell', ratio: 2.76, lfo: 0.031, depth: 0.10, trim: 'trimBell' },
+];
+const DRONE_GAIN = 0.55;
+
+/* ---------- buffers ---------- */
+function makePink(ctx, secs) {
+  const n = Math.floor(ctx.sampleRate * secs), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0; i < n; i++) {
+    const w = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.969 * b2 + w * 0.153852;
+    b3 = 0.8665 * b3 + w * 0.3104856; b4 = 0.55 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.016898;
+    d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11; b6 = w * 0.115926;
+  }
+  return b;
+}
+function makeWhite(ctx, secs) {
+  const n = Math.floor(ctx.sampleRate * secs), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return b;
+}
+function makeIR(ctx, secs) {
+  const sr = ctx.sampleRate, n = Math.floor(sr * secs), b = ctx.createBuffer(2, n, sr), pre = Math.floor(sr * 0.018);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = b.getChannelData(ch); let lp = 0;
+    for (let i = pre; i < n; i++) {
+      const t = (i - pre) / (n - pre), env = Math.exp(-6.9 * t);
+      const damp = 0.12 + 0.86 * Math.sqrt(t);            /* highs die first, like real air */
+      lp += ((Math.random() * 2 - 1) - lp) * (1 - damp);
+      d[i] = lp * env * 1.6;
+    }
+  }
+  return b;
+}
+const pulseWave = (ctx, w) => {
+  const N = 96, re = new Float32Array(N + 1), im = new Float32Array(N + 1);
+  for (let n = 1; n <= N; n++) re[n] = (2 / (n * Math.PI)) * Math.sin(n * Math.PI * w);
+  return ctx.createPeriodicWave(re, im);
+};
+const organWave = (ctx, a, b) => {
+  const N = 20, re = new Float32Array(N + 1), im = new Float32Array(N + 1);
+  const bars = new Set([1, 2, 3, 4, 5, 6, 8, 10, 12, 16]);
+  for (let h = 1; h <= N; h++) {
+    const w = (bars.has(h) ? 1 : 0.1) / Math.sqrt(h) * Math.pow(0.3 + 0.7 * a, Math.log2(h)) * (h % 2 ? 1 + b : 1 - 0.65 * b);
+    im[h] = w;
+  }
+  return ctx.createPeriodicWave(re, im);
+};
+
+/* ---------- drone oscillator models ---------- */
+function makeUnit(model, f0) {
+  const ctx = A.ctx, out = ctx.createGain(), nodes = [];
+  out.gain.value = model === 'sine' ? 1 : (MODELS[model] ? MODELS[model].trim : 1);
+  const T = (p, v, t, tau) => { if (Number.isFinite(v)) p.setTargetAtTime(v, t, Math.max(0.01, tau)); };
+  const osc = (type) => { const o = ctx.createOscillator(); if (type) o.type = type; o.frequency.value = f0; nodes.push(o); return o; };
+  const U = { out, f: f0, setFreq() { }, setTimbre() { } };
+
+  if (model === 'sine') {
+    const o = osc('sine'); o.connect(out);
+    U.setFreq = (f, t, tau) => T(o.frequency, f, t, tau);
+  } else if (model === 'blend') {
+    const o1 = osc('sine'), o2 = osc('sawtooth'), g1 = ctx.createGain(), g2 = ctx.createGain();
+    g1.gain.value = 0.775; g2.gain.value = 0.225;
+    o1.connect(g1).connect(out); o2.connect(g2).connect(out);
+    U.setFreq = (f, t, tau) => { T(o1.frequency, f, t, tau); T(o2.frequency, f, t, tau); };
+    U.setTimbre = (a, b, ps, t) => { T(g1.gain, 1 - a * 0.9, t, 0.4); T(g2.gain, a * 0.9, t, 0.4); T(o2.detune, clamp(b * ps, 0, 1.6) * 16, t, 0.4); };
+  } else if (model === 'supersaw') {
+    const os = [osc('sawtooth'), osc('sawtooth'), osc('sawtooth')], gs = os.map(() => ctx.createGain());
+    os.forEach((o, i) => o.connect(gs[i]).connect(out));
+    U.setFreq = (f, t, tau) => os.forEach(o => T(o.frequency, f, t, tau));
+    U.setTimbre = (a, b, ps, t) => {
+      const c = clamp(a * ps, 0, 1.7) * 40;
+      T(os[0].detune, -c, t, 0.4); T(os[2].detune, c, t, 0.4);
+      T(gs[1].gain, 1, t, 0.4); T(gs[0].gain, b, t, 0.4); T(gs[2].gain, b, t, 0.4);
+    };
+  } else if (model === 'fm') {
+    const c = osc('sine'), m = osc('sine'), mg = ctx.createGain(), lf = ctx.createOscillator(), lg = ctx.createGain();
+    let ratio = 1.5, idx = 1.5; nodes.push(lf);
+    lf.frequency.value = 0.04 + Math.random() * 0.06;
+    m.connect(mg).connect(c.frequency); lf.connect(lg).connect(mg.gain); c.connect(out);
+    const apply = (t, tau) => {
+      T(m.frequency, U.f * ratio, t, tau);
+      T(mg.gain, U.f * ratio * idx, t, tau); T(lg.gain, U.f * ratio * idx * 0.35, t, tau);
+    };
+    U.setFreq = (f, t, tau) => { U.f = f; T(c.frequency, f, t, tau); apply(t, tau); };
+    U.setTimbre = (a, b, ps, t) => { ratio = 0.5 + a * 4.5; idx = b * 5; apply(t, 0.4); };
+    mg.gain.value = f0 * ratio * idx;
+  } else if (model === 'organ') {
+    const o = osc(); let la = -9, lb = -9;
+    o.connect(out);
+    U.setFreq = (f, t, tau) => T(o.frequency, f, t, tau);
+    U.setTimbre = (a, b) => { if (Math.abs(a - la) > 0.025 || Math.abs(b - lb) > 0.025) { o.setPeriodicWave(organWave(ctx, a, b)); la = a; lb = b; } };
+    o.setPeriodicWave(organWave(ctx, 0.5, 0.4));
+  } else if (model === 'pulse') {
+    const o1 = osc(), o2 = osc(), g = ctx.createGain(); let lw = -9;
+    g.gain.value = 0.5; o1.connect(g); o2.connect(g); g.connect(out);
+    U.setFreq = (f, t, tau) => { T(o1.frequency, f, t, tau); T(o2.frequency, f, t, tau); };
+    U.setTimbre = (a, b, ps, t) => {
+      const w = 0.1 + a * 0.4;
+      if (Math.abs(w - lw) > 0.012) { o1.setPeriodicWave(pulseWave(ctx, w)); o2.setPeriodicWave(pulseWave(ctx, clamp(w + 0.13, 0.1, 0.5))); lw = w; }
+      T(o2.detune, b * 20, t, 0.4);
+    };
+    o1.setPeriodicWave(pulseWave(ctx, 0.3)); o2.setPeriodicWave(pulseWave(ctx, 0.43));
+  } else if (model === 'choir') {
+    const o = osc('sawtooth'), vib = ctx.createOscillator(), vg = ctx.createGain();
+    nodes.push(vib); vib.frequency.value = 4.3 + Math.random() * 0.8; vg.gain.value = 7;
+    vib.connect(vg).connect(o.detune);
+    const fl = [0, 1, 2].map(i => {
+      const f = ctx.createBiquadFilter(), g = ctx.createGain(); f.type = 'bandpass'; f.frequency.value = VOWELS[0][i]; f.Q.value = 8;
+      g.gain.value = [1, 0.6, 0.35][i]; o.connect(f); f.connect(g).connect(out); return f;
+    });
+    U.setFreq = (f, t, tau) => T(o.frequency, f, t, tau);
+    U.setTimbre = (a, b, ps, t) => {
+      const pos = clamp(a, 0, 1) * 4, i0 = Math.floor(pos), i1 = Math.min(4, i0 + 1), fr = pos - i0;
+      fl.forEach((f, k) => { T(f.frequency, lerp(VOWELS[i0][k], VOWELS[i1][k], fr), t, 0.6); T(f.Q, 3 + b * 14, t, 0.6); });
+    };
+  } else if (model === 'resonator') {
+    const src = ctx.createBufferSource(); src.buffer = A.white; src.loop = true; nodes.push(src);
+    const f1 = ctx.createBiquadFilter(), f2 = ctx.createBiquadFilter(), g1 = ctx.createGain(), g2 = ctx.createGain();
+    f1.type = f2.type = 'bandpass'; f1.frequency.value = f0; f2.frequency.value = f0 * 3;
+    src.connect(f1); src.connect(f2); f1.connect(g1).connect(out); f2.connect(g2).connect(out);
+    g1.gain.value = 1; g2.gain.value = 0.3;
+    let q = 100;
+    U.setFreq = (f, t, tau) => { T(f1.frequency, f, t, tau); T(f2.frequency, f * 3, t, tau); };
+    U.setTimbre = (a, b, ps, t) => {
+      q = 15 + a * 235; const comp = 0.06 * Math.sqrt(q);
+      T(f1.Q, q, t, 0.5); T(f2.Q, q * 0.8, t, 0.5); T(g1.gain, comp, t, 0.5); T(g2.gain, comp * b * 1.4, t, 0.5);
+    };
+  }
+  U.start = () => nodes.forEach(n => { if (n instanceof AudioBufferSourceNode) n.start(0, Math.random() * (n.buffer.duration - 0.05)); else n.start(); });
+  U.stop = () => { nodes.forEach(n => { try { n.stop(); } catch (e) { } }); try { out.disconnect(); } catch (e) { } };
+  return U;
+}
+/* choir and resonator would flutter at sub-bass pitches, so those layers keep a plain oscillator */
+const unitModelFor = (model, ratio) => ((model === 'choir' || model === 'resonator') && ratio < 1) ? 'blend' : model;
+
+function buildDrone(model, hz) {
+  const ctx = A.ctx, bus = ctx.createGain(); bus.gain.value = 0; bus.connect(A.filt);
+  const layers = LAYERS.map(L => {
+    const unit = makeUnit(L.id === 'bell' ? 'sine' : unitModelFor(model, L.ratio), hz * L.ratio);
+    const swell = ctx.createGain(); swell.gain.value = 0.9;
+    const lfo = ctx.createOscillator(), lg = ctx.createGain();
+    lfo.frequency.value = L.lfo; lg.gain.value = L.depth; lfo.connect(lg).connect(swell.gain); lfo.start(ctx.currentTime + Math.random());
+    const lvl = ctx.createGain(); lvl.gain.value = 0;
+    unit.out.connect(swell); swell.connect(lvl); lvl.connect(bus); unit.start();
+    return { L, unit, swell, lfo, lvl };
+  });
+  return {
+    model, bus, layers,
+    dispose() { layers.forEach(l => { l.unit.stop(); try { l.lfo.stop(); } catch (e) { } }); try { bus.disconnect(); } catch (e) { } }
+  };
+}
+function switchDrone(model) {
+  if (!A) return;
+  const t = A.ctx.currentTime, old = A.drone;
+  A.drone = buildDrone(model, droneHz());
+  A.drone.bus.gain.setValueAtTime(0, t); A.drone.bus.gain.linearRampToValueAtTime(1, t + 3);
+  if (old) { old.bus.gain.cancelScheduledValues(t); old.bus.gain.setValueAtTime(old.bus.gain.value, t); old.bus.gain.linearRampToValueAtTime(0, t + 3); setTimeout(() => old.dispose(), 3600); }
+  applyAudio(true);
+}
+
+/* ---------- drone pitch, drift ---------- */
+const D = { deg: 0, timer: 25 };
+function scaleSemis(deg) {
+  const sc = SCALES[cfg.mscale][1], n = sc.length, oct = Math.floor(deg / n), idx = ((deg % n) + n) % n;
+  return sc[idx] + oct * 12;
+}
+const droneHz = () => ROOTS[cfg.root].hz * Math.pow(2, scaleSemis(D.deg) / 12);
+function setDroneFreq(glideSec) {
+  if (!A || !A.drone) return;
+  const t = A.ctx.currentTime, hz = droneHz();
+  A.drone.layers.forEach(l => l.unit.setFreq(hz * l.L.ratio, t, glideSec / 3));
+}
+function mutateDrone() {
+  const n = SCALES[cfg.mscale][1].length;
+  const step = Math.random() < 0.5 ? (Math.random() < 0.5 ? n : -n) : (Math.random() < 0.5 ? 1 : -1) * (1 + Math.floor(Math.random() * 2));
+  const lim = Math.round(n * cfg.driftRange);
+  D.deg = clamp(D.deg + step, -lim, lim);
+}
+
+/* ---------- build the whole graph (must run inside a click) ---------- */
+function buildAudio() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) throw new Error('Web Audio is not available in this browser');
+  const ctx = new AC({ latencyHint: 'interactive' });
+  A = { ctx, E: null, throb: { t0: -1e9 }, gust: { t0: -1e9 }, spec: new Float32Array(64), energy: 0, lastHour: -1, irSecs: 0 };
+  A.pink = makePink(ctx, 10); A.white = makeWhite(ctx, 5);
+
+  A.master = ctx.createGain(); A.master.gain.value = 0;
+  A.comp = ctx.createDynamicsCompressor();
+  A.comp.threshold.value = -15; A.comp.knee.value = 14; A.comp.ratio.value = 6; A.comp.attack.value = 0.02; A.comp.release.value = 0.4;
+  A.analyser = ctx.createAnalyser(); A.analyser.fftSize = 2048; A.analyser.smoothingTimeConstant = 0.8;
+  A.analyser.minDecibels = -92; A.analyser.maxDecibels = -22;
+  A.master.connect(A.comp); A.comp.connect(ctx.destination); A.comp.connect(A.analyser);
+
+  /* effects: dry, convolution reverb, tempo-synced feedback delay */
+  A.fxIn = ctx.createGain();
+  A.dry = ctx.createGain(); A.fxIn.connect(A.dry); A.dry.connect(A.master);
+  A.conv = ctx.createConvolver(); A.revSend = ctx.createGain(); A.fxIn.connect(A.revSend); A.revSend.connect(A.conv);
+  A.revLP = ctx.createBiquadFilter(); A.revLP.type = 'lowpass'; A.revLP.frequency.value = 7000;
+  A.revOut = ctx.createGain(); A.conv.connect(A.revLP); A.revLP.connect(A.revOut); A.revOut.connect(A.master);
+  A.dly = ctx.createDelay(4); A.dlyFb = ctx.createGain(); A.dlyLP = ctx.createBiquadFilter(); A.dlyLP.type = 'lowpass'; A.dlyLP.frequency.value = 3200;
+  A.dlySend = ctx.createGain(); A.dlyOut = ctx.createGain();
+  A.fxIn.connect(A.dlySend); A.dlySend.connect(A.dly); A.dly.connect(A.dlyLP); A.dlyLP.connect(A.dlyFb); A.dlyFb.connect(A.dly);
+  A.dlyLP.connect(A.dlyOut); A.dlyOut.connect(A.master); A.dlyOut.connect(A.revSend);
+  setReverbSize(cfg.reverbSize);
+
+  /* drone path: voices -> lowpass (swept by a slow LFO) -> level */
+  A.filt = ctx.createBiquadFilter(); A.filt.type = 'lowpass'; A.filt.frequency.value = cfg.cutoff; A.filt.Q.value = 1;
+  A.droneOut = ctx.createGain(); A.droneOut.gain.value = 0; A.filt.connect(A.droneOut); A.droneOut.connect(A.fxIn);
+  A.lfo = ctx.createOscillator(); A.lfo.frequency.value = 0.02; A.lfoGain = ctx.createGain(); A.lfoGain.gain.value = cfg.lfoDepth;
+  A.lfo.connect(A.lfoGain); A.lfoGain.connect(A.filt.frequency); A.lfo.start();
+
+  /* wind: drifting bandpassed pink noise, plus a high whistle that only appears in gusts, with a soft echo */
+  const ls = (buf) => { const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; s.start(0, Math.random() * (buf.duration - 0.1)); return s; };
+  A.windBP = ctx.createBiquadFilter(); A.windBP.type = 'bandpass'; A.windBP.Q.value = 1.3; A.windBP.frequency.value = 400;
+  ls(A.pink).connect(A.windBP);
+  A.whHP = ctx.createBiquadFilter(); A.whHP.type = 'highpass'; A.whHP.frequency.value = 2500;
+  A.whG = ctx.createGain(); A.whG.gain.value = 0; ls(A.white).connect(A.whHP); A.whHP.connect(A.whG);
+  A.windSum = ctx.createGain(); A.windBP.connect(A.windSum); A.whG.connect(A.windSum);
+  A.windOut = ctx.createGain(); A.windOut.gain.value = 0; A.windSum.connect(A.windOut);
+  A.wDly = ctx.createDelay(1); A.wDly.delayTime.value = 0.42; A.wFb = ctx.createGain(); A.wFb.gain.value = 0.45; A.wMix = ctx.createGain(); A.wMix.gain.value = 0.5;
+  A.windSum.connect(A.wDly); A.wDly.connect(A.wFb); A.wFb.connect(A.wDly); A.wDly.connect(A.wMix); A.wMix.connect(A.windOut);
+  A.windOut.connect(A.fxIn);
+
+  /* precipitation hiss: bright and thin for rain, low and soft for snow */
+  A.rainBP = ctx.createBiquadFilter(); A.rainBP.type = 'bandpass'; A.rainBP.frequency.value = 4200; A.rainBP.Q.value = 0.45;
+  A.rainG = ctx.createGain(); A.rainG.gain.value = 0; ls(A.pink).connect(A.rainBP); A.rainBP.connect(A.rainG);
+  A.snowLP = ctx.createBiquadFilter(); A.snowLP.type = 'lowpass'; A.snowLP.frequency.value = 850;
+  A.snowG = ctx.createGain(); A.snowG.gain.value = 0; ls(A.pink).connect(A.snowLP); A.snowLP.connect(A.snowG);
+  A.precipOut = ctx.createGain(); A.rainG.connect(A.precipOut); A.snowG.connect(A.precipOut); A.precipOut.connect(A.fxIn);
+
+  A.melOut = ctx.createGain(); A.melOut.connect(A.fxIn);
+  A.bellOut = ctx.createGain(); A.bellOut.connect(A.fxIn);
+
+  A.drone = buildDrone(cfg.model, droneHz());
+  A.drone.bus.gain.setValueAtTime(0, ctx.currentTime); A.drone.bus.gain.linearRampToValueAtTime(1, ctx.currentTime + 4);
+  A.tickTimer = setInterval(tick, 200);
+  A.melTimer = setInterval(melodyTick, 60);
+  return ctx.resume();
+}
+function setReverbSize(secs) {
+  if (!A) return;
+  A.conv.buffer = makeIR(A.ctx, clamp(secs, 0.6, 9)); A.irSecs = secs;
+}
+
+/* ---------- parameter helper ---------- */
+const FAST = () => !!window.__bwFast;
+function sp(p, v, tau) { if (!A || !Number.isFinite(v)) return; p.setTargetAtTime(v, A.ctx.currentTime, Math.max(0.005, FAST() ? Math.min(tau, 0.15) : tau)); }
+
+/* ---------- map the sky and the controls onto the sound ---------- */
+function applyAudio(snap) {
+  if (!A) return;
+  const E = A.E || effective();
+  const day = E.day;
+  sp(A.master.gain, S.muted ? 0 : cfg.master * 0.9, 0.08);
+  sp(A.droneOut.gain, cfg.droneLevel * DRONE_GAIN, 0.4);
+
+  const tempF = lin(E.temp, -10, 105, 0.7, 1.35), cloudF = lin(E.cloud, 0, 100, 1.15, 0.72);
+  sp(A.filt.frequency, clamp(cfg.cutoff * tempF * cloudF * (0.85 + 0.3 * day), 100, 7000), 1.5);
+  sp(A.filt.Q, 0.6 + (lin(E.hum, 0, 100, 0.05, 0.3) + cfg.resonance) * 14, 1.5);
+  sp(A.lfo.frequency, lin(E.wind, 0, 50, 0.006, 0.05) * cfg.lfoMult, 2);
+  sp(A.lfoGain.gain, cfg.lfoDepth, 1);
+
+  const ampLfo = lin(E.wind, 0, 50, 0.6, 1.7), ps = lin(E.pres, 980, 1040, 1.7, 0.5);
+  const throb = throbEnv(E) * 0.25;
+  const lv = {
+    sub2: 0.35 + (1 - day) * 0.15, sub1: 0.35 + (1 - day) * 0.15, root: 0.35,
+    oct1: day * 0.25, oct2: day * day * 0.15, bell: 0.04 + day * 0.05,
+  };
+  const t = A.ctx.currentTime;
+  A.drone.layers.forEach(l => {
+    const id = l.L.id, boost = (id === 'sub2' || id === 'sub1') ? 1 + throb : 1;
+    sp(l.lvl.gain, lv[id] * cfg[l.L.trim] * boost, snap ? 0.1 : 4);
+    sp(l.lfo.frequency, l.L.lfo * ampLfo, 5);
+    if (id !== 'bell') l.unit.setTimbre(cfg.tA, cfg.tB, ps, t);
+  });
+
+  /* wind */
+  const wf = clamp(E.wind / 50, 0, 1), age = A.ctx.currentTime - A.gust.t0;
+  const gust = age < 0.7 ? age / 0.7 : Math.exp(-(age - 0.7) / 1.3);
+  const drift = 300 * Math.sin(A.ctx.currentTime * 0.07 + 1) * Math.sin(A.ctx.currentTime * 0.031 + 2);
+  sp(A.windBP.frequency, clamp(250 + wf * 900 + drift + gust * 2200, 120, 5000), 0.25);
+  sp(A.whG.gain, gust * 0.5, 0.1);
+  sp(A.windOut.gain, (0.12 + wf * 0.6) * wf * cfg.windLevel * 0.9 + wf * 0.03 * cfg.windLevel, 0.8);
+
+  /* rain or snow hiss */
+  const amt = lin(E.precip, 0, 1, 0, 0.3) * cfg.precipNoise;
+  sp(A.rainG.gain, E.snow ? 0 : amt * 0.7, 2); sp(A.snowG.gain, E.snow ? amt * 0.9 : 0, 2);
+  sp(A.precipOut.gain, 1, 1);
+
+  /* space */
+  const cloudMix = lin(E.cloud, 0, 100, 0.85, 1.25);
+  sp(A.dry.gain, 1 - Math.min(0.45, cfg.reverbMix * 0.5), 0.2);
+  sp(A.revSend.gain, 0.9, 0.2);
+  sp(A.revOut.gain, cfg.reverbMix * cloudMix * 1.1, 0.4);
+  sp(A.revLP.frequency, lin(E.hum, 0, 100, 9000, 3500), 2);
+  const beat = 60 / cfg.bpm;
+  sp(A.dly.delayTime, clamp(beat * cfg.delayDiv, 0.02, 3.9), 0.2);
+  sp(A.dlyFb.gain, cfg.delayFb, 0.2); sp(A.dlySend.gain, cfg.delayMix > 0 ? 1 : 0, 0.1); sp(A.dlyOut.gain, cfg.delayMix, 0.2);
+  sp(A.melOut.gain, cfg.mlevel * 0.55, 0.1);
+  sp(A.bellOut.gain, cfg.bellLevel, 0.1);
+}
+function throbEnv(E) {
+  const age = A.ctx.currentTime - A.throb.t0;
+  const e = age < 0 ? 0 : age < 20 ? smooth(age / 20) : Math.max(0, 1 - (age - 20) / 35);
+  return e * clamp(E.moon, 0, 1);
+}
+
+/* ---------- 5 Hz housekeeping: gusts, moon swells, drift, hourly bell ---------- */
+function tick() {
+  if (!A || A.ctx.state !== 'running') return;
+  const E = A.E = effective(), dt = 0.2, now = A.ctx.currentTime;
+  const wf = clamp(E.wind / 50, 0, 1);
+  if (Math.random() < (0.015 + wf * 0.08) * dt * (E.wind > 1 ? 1 : 0)) A.gust.t0 = now;
+  if (Math.random() < (0.0015 + clamp(E.moon, 0, 1) * 0.012) * dt) A.throb.t0 = now;
+  if (cfg.drift) {
+    D.timer -= dt;
+    if (D.timer <= 0) {
+      mutateDrone();
+      D.timer = Math.max(8, Math.max(30, lin(E.hum, 0, 100, 90, 30)) * cfg.driftInterval * (120 / cfg.bpm));
+      setDroneFreq(lin(E.hum, 0, 100, 4, 26) * cfg.glideMult);
+    }
+  }
+  const h = Math.floor(E.hour);
+  if (A.lastHour >= 0 && h !== A.lastHour && cfg.hourlyBell && !S.muted && S.timeSpeed <= 120) strikeBell(0);
+  A.lastHour = h;
+  applyAudio(false);
+}
+
+/* ---------- bell: a classic hum, prime, tierce, quint, nominal, with a bright strike ---------- */
+function strikeBell(delay) {
+  if (!A) return;
+  const ctx = A.ctx, w = ctx.currentTime + (delay || 0) + 0.02, f = ROOTS[cfg.root].hz * 2, E = A.E || effective();
+  const parts = [[0.5, 0.4, 8.0], [1, 0.5, 6.0], [1.19, 0.3, 4.0], [1.5, 0.25, 3.0], [2, 0.3, 2.5], [4.05, 0.35 * (0.5 + 0.5 * E.day), 0.4]];
+  const g = ctx.createGain(); g.gain.value = 0.5; g.connect(A.bellOut);
+  parts.forEach(([r, amp, dec]) => {
+    const o = ctx.createOscillator(), e = ctx.createGain(); o.frequency.value = f * r;
+    e.gain.setValueAtTime(0.0001, w); e.gain.linearRampToValueAtTime(amp, w + 0.004); e.gain.exponentialRampToValueAtTime(0.0001, w + dec);
+    o.connect(e).connect(g); o.start(w); o.stop(w + dec + 0.1);
+  });
+  setTimeout(() => { try { g.disconnect(); } catch (e) { } }, (delay + 9) * 1000);
+  vis.shocks.push({ t: w, kind: 'bell' });
+}
+
+/* ---------- melody: random walk on a scale, density set by the precipitation ---------- */
+const M = { next: 0, deg: 0, last: 0 };
+const STEP_MULT = [0.5, 0.67, 0.75, 1, 1, 1, 1.33, 1.5, 2];
+function mutateDegree() {
+  if (Math.random() < cfg.holdP) { M.last = 0; return; }
+  const r = Math.random();
+  let size = r < 0.65 ? 1 : r < 0.88 ? 2 : 3 + Math.floor(Math.random() * 2);
+  size = Math.max(1, Math.round(size * cfg.wander));
+  let dir;
+  if (Math.abs(M.last) >= 3 && Math.random() < 0.7) dir = M.last > 0 ? -1 : 1;
+  else {
+    const toward = M.deg > 0 ? -1 : 1, pull = clamp(Math.abs(M.deg) / 14, 0, 1) * 0.6 * cfg.pull;
+    dir = Math.random() < 0.5 + pull ? toward : -toward;
+  }
+  M.deg = clamp(M.deg + dir * size, -14, 14); M.last = dir * size;
+}
+const melFreq = deg => ROOTS[cfg.root].hz * 4 * Math.pow(2, cfg.octave) * Math.pow(2, scaleSemis(deg) / 12);
+function melodyActivity(E) {
+  if (!cfg.melodyOn) return 0;
+  return Math.max(E.precip, cfg.dryFloor * (0.4 + 0.6 * E.cloud / 100));
+}
+const stepBeats = act => act <= 0 ? 4 : lin(clamp(act, 0.001, 1), 0.001, 1, 2.5, 0.4) * pick(STEP_MULT);
+const density = act => act <= 0 ? 0 : lin(clamp(act, 0.001, 1), 0.001, 1, 0.4, 0.85) * cfg.density;
+
+function melodyTick() {
+  if (!A || A.ctx.state !== 'running') return;
+  const E = A.E || effective(), now = A.ctx.currentTime, ahead = document.hidden ? 1.6 : 0.3;
+  if (M.next < now) M.next = now + 0.05;
+  let guard = 0;
+  while (M.next < now + ahead && guard++ < 12) {
+    const act = melodyActivity(E);
+    if (act > 0 && !S.muted && Math.random() < density(act)) {
+      mutateDegree();
+      playNote(melFreq(M.deg), M.next, E);
+      vis.notes.push({ t: M.next, deg: M.deg, snow: E.snow });
+    }
+    M.next += stepBeats(act) * 60 / cfg.bpm;
+  }
+}
+
+/* Karplus-Strong string rendered straight into a buffer: no worklet needed, works anywhere */
+function ksBuffer(ctx, f, decay, coef, bright) {
+  const sr = ctx.sampleRate, L = Math.max(2, sr / f - coef / (1 - coef)), size = Math.ceil(L) + 3;
+  const len = Math.floor(sr * clamp(decay * 1.15, 0.3, 9));
+  const buf = ctx.createBuffer(1, len, sr), out = buf.getChannelData(0), d = new Float32Array(size);
+  let p = 0; const a = clamp(bright, 0.05, 1);
+  for (let i = 0; i < size; i++) { p += ((Math.random() * 2 - 1) - p) * a; d[i] = p * (1 / Math.sqrt(a + 0.05)) * 0.6; }
+  const g = Math.pow(0.001, 1 / (decay * f));
+  let w = 0, lp = 0;
+  for (let n = 0; n < len; n++) {
+    let rp = w - L; if (rp < 0) rp += size;
+    const i0 = Math.floor(rp), fr = rp - i0, y = d[i0 % size] * (1 - fr) + d[(i0 + 1) % size] * fr;
+    lp = (1 - coef) * y + coef * lp;
+    d[w] = lp * g; out[n] = y; w = (w + 1) % size;
+  }
+  const fade = Math.min(len, Math.floor(sr * 0.06));
+  for (let n = 0; n < fade; n++) out[len - 1 - n] *= n / fade;
+  return buf;
+}
+function playNote(freq, when, E) {
+  const ctx = A.ctx, snow = E.snow, wsec = Math.max(when, ctx.currentTime + 0.01);
+  const decay = (snow ? 2.8 : 0.5) * cfg.decayScale, atk = snow ? 0.09 : 0.002, coef = snow ? 0.22 : 0.1;
+  const amp = 0.3 * lin(E.precip, 0, 1, 0.5, 1) * (0.85 + Math.random() * 0.3);
+  const out = ctx.createGain(); out.gain.value = amp;
+  const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+  if (pan) { pan.pan.value = rnd(-0.4, 0.4); out.connect(pan); pan.connect(A.melOut); } else out.connect(A.melOut);
+  const end = wsec + decay * 1.3 + 0.6;
+  const kill = () => setTimeout(() => { try { out.disconnect(); } catch (e) { } }, (end - ctx.currentTime + 0.5) * 1000);
+  const v = cfg.mvoice;
+
+  if (v === 'string') {
+    const bright = clamp(cfg.mbright * (1 - atk * 3), 0.1, 1);
+    [[1, 0.7], [1.003, 0.5]].forEach(([r, gn]) => {
+      const s = ctx.createBufferSource(), g = ctx.createGain();
+      s.buffer = ksBuffer(ctx, freq * r, decay * (r > 1 ? 0.92 : 1), coef, bright); g.gain.value = gn;
+      s.connect(g).connect(out); s.start(wsec);
+    });
+  } else if (v === 'glass') {
+    const c = ctx.createOscillator(), m = ctx.createOscillator(), mg = ctx.createGain(), e = ctx.createGain();
+    c.frequency.value = freq; m.frequency.value = freq * 3.51;
+    const idx = freq * 3.51 * (1.2 + cfg.mbright * 2);
+    mg.gain.setValueAtTime(idx, wsec); mg.gain.exponentialRampToValueAtTime(freq * 0.2, wsec + decay * 0.7);
+    e.gain.setValueAtTime(0.0001, wsec); e.gain.linearRampToValueAtTime(1, wsec + atk + 0.003); e.gain.exponentialRampToValueAtTime(0.0001, wsec + decay * 1.2);
+    m.connect(mg).connect(c.frequency); c.connect(e).connect(out);
+    c.start(wsec); m.start(wsec); c.stop(end); m.stop(end);
+  } else if (v === 'kalimba') {
+    [[1, 1, 1], [3.93, 0.35, 0.3], [9.2, 0.1, 0.08]].forEach(([r, gn, dm]) => {
+      const o = ctx.createOscillator(), e = ctx.createGain(); o.frequency.value = freq * r;
+      e.gain.setValueAtTime(0.0001, wsec); e.gain.linearRampToValueAtTime(gn, wsec + 0.003 + atk * 0.4); e.gain.exponentialRampToValueAtTime(0.0001, wsec + decay * dm * 1.1 + 0.05);
+      o.connect(e).connect(out); o.start(wsec); o.stop(end);
+    });
+  } else {  /* pad */
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.7;
+    f.frequency.setValueAtTime(300, wsec); f.frequency.linearRampToValueAtTime(600 + cfg.mbright * 2600, wsec + 0.6); f.frequency.exponentialRampToValueAtTime(300, wsec + decay * 1.1);
+    const e = ctx.createGain(), a2 = snow ? 0.7 : 0.25;
+    e.gain.setValueAtTime(0.0001, wsec); e.gain.linearRampToValueAtTime(0.9, wsec + a2); e.gain.exponentialRampToValueAtTime(0.0001, wsec + a2 + decay * 1.1);
+    [[-6, 'triangle'], [6, 'triangle'], [0, 'sine']].forEach(([cents, type]) => {
+      const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq; o.detune.value = cents; o.connect(f); o.start(wsec); o.stop(end + a2);
+    });
+    f.connect(e).connect(out);
+  }
+  kill();
+}
+
+/* ================= visuals: layered sky, spectrum ridge, ripples, melody grid ================= */
+const V = {
+  w: 0, h: 0, dpr: 1, stars: [], clouds: [], parts: [], spec: new Float32Array(96), specBuf: null,
+  sky: null, skx: null, grid: null, gx: null, gw: 0, gh: 0,
+  drops: [], pile: new Float32Array(16), ripples: [], shocks: [], fm: 0, energy: 0, aur: 0, tmr: 0,
+};
+const COLS = 16, ROWS = 8;
+const mixc = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+const rgb = (c, a) => 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + (a == null ? 1 : a) + ')';
+const lum = c => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+
+function initVisual() {
+  V.sky = $('#sky'); V.skx = V.sky.getContext('2d'); V.grid = $('#gridcv'); V.gx = V.grid.getContext('2d');
+  for (let i = 0; i < 160; i++) V.stars.push({ x: Math.random(), y: Math.random() * 0.72, r: Math.random() * 1.1 + 0.3, p: Math.random() * 6.28, s: 0.6 + Math.random() * 2 });
+  for (let i = 0; i < 9; i++) V.clouds.push({ x: Math.random(), y: 0.1 + Math.random() * 0.35, s: 0.7 + Math.random() * 0.9, v: 0.4 + Math.random() * 0.8, k: Math.random() });
+  resizeVisual();
+  addEventListener('resize', resizeVisual);
+}
+function resizeVisual() {
+  V.dpr = Math.min(2, window.devicePixelRatio || 1);
+  const r = V.sky.getBoundingClientRect();
+  V.w = Math.max(10, r.width); V.h = Math.max(10, r.height);
+  V.sky.width = Math.round(V.w * V.dpr); V.sky.height = Math.round(V.h * V.dpr);
+  const g = V.grid.getBoundingClientRect();
+  V.gw = Math.max(10, g.width); V.gh = Math.max(10, g.height);
+  V.grid.width = Math.round(V.gw * V.dpr); V.grid.height = Math.round(V.gh * V.dpr);
+}
+
+/* pull audio events whose time has come into the picture */
+function drainEvents() {
+  if (!A) { vis.notes.length = 0; vis.shocks.length = 0; return; }
+  const now = A.ctx.currentTime;
+  while (vis.notes.length && vis.notes[0].t <= now) {
+    const n = vis.notes.shift();
+    if (now - n.t > 1.5) continue;
+    const col = clamp(Math.floor((n.deg + 14) / 29 * COLS), 0, COLS - 1);
+    V.drops.push({ col, y: -0.5, snow: n.snow, ph: Math.random() * 6.28 });
+    V.ripples.push({ x: 0.08 + 0.84 * (col + 0.5) / COLS, t: 0, snow: n.snow, deg: n.deg });
+  }
+  while (vis.shocks.length && vis.shocks[0].t <= now) { vis.shocks.shift(); V.shocks.push({ t: 0 }); }
+}
+
+function spectrumBins() {
+  const out = V.spec;
+  if (A && A.ctx.state === 'running') {
+    if (!V.specBuf) V.specBuf = new Uint8Array(A.analyser.frequencyBinCount);
+    A.analyser.getByteFrequencyData(V.specBuf);
+    const nyq = A.ctx.sampleRate / 2, n = V.specBuf.length, lo = 30, hi = 9000;
+    let tot = 0;
+    for (let i = 0; i < out.length; i++) {
+      const f0 = lo * Math.pow(hi / lo, i / out.length), f1 = lo * Math.pow(hi / lo, (i + 1) / out.length);
+      let a = Math.floor(f0 / nyq * n), b = Math.max(a + 1, Math.ceil(f1 / nyq * n)), m = 0;
+      for (let k = a; k < b && k < n; k++) m = Math.max(m, V.specBuf[k]);
+      const v = m / 255;
+      out[i] = lerp(out[i], v, v > out[i] ? 0.5 : 0.12); tot += out[i];
+    }
+    V.energy = lerp(V.energy, tot / out.length, 0.08);
+  } else {
+    for (let i = 0; i < out.length; i++) out[i] = lerp(out[i], 0.12 + 0.1 * Math.sin(i * 0.2 + V.tmr * 0.4) * Math.sin(i * 0.07 - V.tmr * 0.2), 0.05);
+    V.energy = lerp(V.energy, 0.18, 0.02);
+  }
+}
+
+function skyColors(E) {
+  const alt = E.sunAlt;
+  const NIGHT = [[5, 9, 20], [14, 24, 52]], TWI = [[44, 44, 92], [218, 112, 84]], DAY = [[58, 120, 196], [172, 208, 238]];
+  let top, bot;
+  if (alt < -10) { top = NIGHT[0]; bot = NIGHT[1]; }
+  else if (alt < 0) { const t = smooth((alt + 10) / 10); top = mixc(NIGHT[0], TWI[0], t); bot = mixc(NIGHT[1], TWI[1], t); }
+  else if (alt < 14) { const t = smooth(alt / 14); top = mixc(TWI[0], DAY[0], t); bot = mixc(TWI[1], DAY[1], t); }
+  else { top = DAY[0]; bot = DAY[1]; }
+  const cl = E.cloud / 100, wet = E.precip;
+  const desat = clamp(cl * 0.7 + wet * 0.2, 0, 0.9), dark = 1 - wet * 0.35 - cl * 0.12;
+  const gr = c => { const l = lum(c); return mixc(c, [l, l * 1.02, l * 1.08], desat).map(v => v * dark); };
+  return { top: gr(top), bot: gr(bot) };
+}
+
+function drawSky(dt) {
+  const c = V.skx, w = V.w, h = V.h, E = (A && A.E) || effective(); V.E = E;
+  V.tmr += dt;
+  drainEvents(); spectrumBins();
+  c.setTransform(V.dpr, 0, 0, V.dpr, 0, 0);
+  const col = skyColors(E), hor = h * 0.66, night = 1 - E.day;
+  const g = c.createLinearGradient(0, 0, 0, hor);
+  g.addColorStop(0, rgb(col.top)); g.addColorStop(1, rgb(col.bot));
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+
+  /* stars */
+  const sv = clamp((-E.sunAlt - 4) / 12, 0, 1) * (1 - E.cloud / 100 * 0.85);
+  if (sv > 0.01) for (const s of V.stars) {
+    const tw = 0.6 + 0.4 * Math.sin(V.tmr * s.s + s.p);
+    c.fillStyle = 'rgba(235,240,255,' + (sv * tw * 0.9).toFixed(3) + ')';
+    c.beginPath(); c.arc(s.x * w, s.y * h, s.r, 0, 6.283); c.fill();
+  }
+
+  /* aurora: breathes with the sound, only on clear dark nights */
+  const au = clamp(V.energy * 2.2, 0, 1) * sv * (1 - E.cloud / 100 * 0.6);
+  V.aur = lerp(V.aur, au, 0.03);
+  if (V.aur > 0.02) {
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (let b = 0; b < 3; b++) {
+      const hue = [150, 175, 280][b], base = hor * (0.3 + b * 0.09);
+      const gg = c.createLinearGradient(0, base - 70, 0, base + 40);
+      gg.addColorStop(0, 'hsla(' + hue + ',80%,60%,0)'); gg.addColorStop(0.55, 'hsla(' + hue + ',80%,58%,' + (V.aur * 0.2).toFixed(3) + ')'); gg.addColorStop(1, 'hsla(' + hue + ',80%,50%,0)');
+      c.fillStyle = gg; c.beginPath(); c.moveTo(0, h);
+      for (let x = 0; x <= w; x += 12) c.lineTo(x, base + Math.sin(x * 0.011 + V.tmr * (0.22 + b * 0.07) + b * 2) * 26 + Math.sin(x * 0.027 - V.tmr * 0.31) * 9);
+      c.lineTo(w, h); c.closePath(); c.fill();
+    }
+    c.restore();
+  }
+
+  /* sun and moon */
+  const bodyXY = (alt, ha) => ({ x: w * (0.5 + clamp(ha, -150, 150) / 190), y: hor - Math.sin(clamp(alt, -20, 90) * RAD) * hor * 0.82 + 8 });
+  if (E.sunAlt > -8) {
+    const p = bodyXY(E.sunAlt, E.sunHa), warm = 1 - clamp(E.sunAlt / 25, 0, 1), vis_ = clamp((E.sunAlt + 8) / 8, 0, 1) * (1 - E.cloud / 100 * 0.6);
+    const rr = 46 + warm * 22, gl = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, rr * 3.2);
+    const tint = mixc([255, 244, 214], [255, 150, 80], warm);
+    gl.addColorStop(0, rgb(tint, 0.85 * vis_)); gl.addColorStop(0.18, rgb(tint, 0.35 * vis_)); gl.addColorStop(1, rgb(tint, 0));
+    c.fillStyle = gl; c.fillRect(p.x - rr * 3.2, p.y - rr * 3.2, rr * 6.4, rr * 6.4);
+    c.fillStyle = rgb(mixc(tint, [255, 255, 255], 0.5), vis_); c.beginPath(); c.arc(p.x, p.y, 15 + warm * 5, 0, 6.283); c.fill();
+  }
+  if (E.moonAlt > -6) {
+    const p = bodyXY(E.moonAlt, E.moonHa), vv = clamp((E.moonAlt + 6) / 10, 0, 1) * (1 - E.cloud / 100 * 0.55) * (0.35 + 0.65 * night), r = 17;
+    const gl = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, 90);
+    gl.addColorStop(0, 'rgba(200,215,255,' + (0.3 * vv * (0.3 + 0.7 * E.moon)).toFixed(3) + ')'); gl.addColorStop(1, 'rgba(200,215,255,0)');
+    c.fillStyle = gl; c.fillRect(p.x - 90, p.y - 90, 180, 180);
+    c.save(); c.translate(p.x, p.y);
+    c.fillStyle = 'rgba(40,52,82,' + (0.85 * vv).toFixed(3) + ')'; c.beginPath(); c.arc(0, 0, r, 0, 6.283); c.fill();
+    const ph = E.moonPhase, ang = ph * 2 * Math.PI, cs = Math.cos(ang), waxing = ph < 0.5;
+    if (!waxing) c.scale(-1, 1);
+    c.fillStyle = 'rgba(238,240,226,' + vv.toFixed(3) + ')'; c.beginPath();
+    c.arc(0, 0, r, -Math.PI / 2, Math.PI / 2, false);
+    c.ellipse(0, 0, Math.max(0.01, Math.abs(cs) * r), r, 0, Math.PI / 2, -Math.PI / 2, cs > 0);
+    c.closePath(); c.fill(); c.restore();
+  }
+
+  /* clouds */
+  const nCl = Math.round(E.cloud / 100 * V.clouds.length), dark = clamp(E.precip * 0.6 + E.cloud / 100 * 0.2, 0, 0.8);
+  const cTop = mixc(mixc(col.bot, [255, 255, 255], 0.55 * E.day + 0.12), [60, 66, 82], dark);
+  for (let i = 0; i < nCl; i++) {
+    const cl = V.clouds[i]; cl.x += dt * (0.004 + E.wind * 0.0009) * cl.v; if (cl.x > 1.3) cl.x = -0.3;
+    const cx = cl.x * w, cy = cl.y * h, sc = cl.s * (w / 700 + 0.5);
+    for (let k = 0; k < 6; k++) {
+      const ox = (k - 2.5) * 34 * sc, oy = Math.sin(k * 1.7 + cl.k * 9) * 9 * sc, rr = (44 + (k % 3) * 14) * sc;
+      const rg = c.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, rr);
+      rg.addColorStop(0, rgb(cTop, 0.42)); rg.addColorStop(1, rgb(cTop, 0));
+      c.fillStyle = rg; c.fillRect(cx + ox - rr, cy + oy - rr, rr * 2, rr * 2);
+    }
+  }
+
+  /* far hills, then the water */
+  const hillC = mixc(col.bot, [8, 14, 26], 0.72);
+  c.fillStyle = rgb(hillC); c.beginPath(); c.moveTo(0, hor);
+  for (let x = 0; x <= w; x += 8) c.lineTo(x, hor - 18 - Math.sin(x * 0.006 + 1) * 16 - Math.sin(x * 0.017) * 8 - Math.sin(x * 0.0031 + 4) * 12);
+  c.lineTo(w, hor + 2); c.lineTo(0, hor + 2); c.closePath(); c.fill();
+
+  const wg = c.createLinearGradient(0, hor, 0, h);
+  wg.addColorStop(0, rgb(mixc(col.bot, [10, 18, 34], 0.35))); wg.addColorStop(1, rgb(mixc(col.top, [4, 8, 16], 0.6)));
+  c.fillStyle = wg; c.fillRect(0, hor, w, h - hor);
+  /* soft reflection streak of the brightest body */
+  if (E.sunAlt > -2 || E.moonAlt > 0) {
+    const p = E.sunAlt > -2 ? bodyXY(E.sunAlt, E.sunHa) : bodyXY(E.moonAlt, E.moonHa), a = E.sunAlt > -2 ? 0.25 : 0.14;
+    const rg = c.createLinearGradient(0, hor, 0, h); rg.addColorStop(0, 'rgba(255,225,170,' + a + ')'); rg.addColorStop(1, 'rgba(255,225,170,0)');
+    c.fillStyle = rg; for (let y = hor + 3; y < h; y += 6) { const wv = Math.sin(y * 0.4 + V.tmr * 2) * 6; c.fillRect(p.x - 18 + wv - (y - hor) * 0.1, y, 36 + (y - hor) * 0.2, 1.4); }
+  }
+
+  /* spectrum ridge: the near hill is the sound */
+  const ridgeBase = hor + (h - hor) * 0.42, amp = h * 0.36, wTop = ridgeBase + 3;
+  c.beginPath(); c.moveTo(0, wTop);
+  const n = V.spec.length;
+  for (let i = 0; i <= n; i++) {
+    const x = i / n * w, v = V.spec[Math.min(i, n - 1)], ix = Math.min(i, n - 1);
+    const tilt = 0.6 + 0.8 * (ix / n);
+    const y = ridgeBase - (v * v * tilt) * amp - Math.sin(i * 0.5) * 1.2;
+    if (i === 0) c.lineTo(0, y); else c.lineTo(x, y);
+  }
+  c.lineTo(w, wTop); c.closePath();
+  const rf = c.createLinearGradient(0, ridgeBase - amp, 0, wTop);
+  rf.addColorStop(0, rgb(mixc(col.bot, [6, 10, 18], 0.8), 0.96)); rf.addColorStop(1, 'rgba(4,7,13,1)');
+  c.fillStyle = rf; c.fill();
+  c.strokeStyle = 'rgba(217,170,96,' + (0.28 + V.energy * 0.9).toFixed(3) + ')'; c.lineWidth = 1.4; c.lineJoin = 'round';
+  c.beginPath();
+  for (let i = 0; i < n; i++) { const x = (i + 0.5) / n * w, v = V.spec[i], tilt = 0.6 + 0.8 * (i / n), y = ridgeBase - (v * v * tilt) * amp - Math.sin(i * 0.5) * 1.2; if (i === 0) c.moveTo(x, y); else c.lineTo(x, y); }
+  c.stroke();
+  c.save(); c.beginPath(); c.rect(0, wTop, w, h - wTop); c.clip(); c.globalAlpha = 0.16; c.translate(0, wTop * 2 - 6); c.scale(1, -0.55); c.translate(0, -wTop + 0);
+  c.fillStyle = 'rgba(217,170,96,1)'; c.beginPath(); c.moveTo(0, wTop); for (let i = 0; i < n; i++) { const v = V.spec[i], tilt = 0.6 + 0.8 * (i / n); c.lineTo((i + 0.5) / n * w, ridgeBase - v * v * tilt * amp * 0.5); } c.lineTo(w, wTop); c.closePath(); c.fill(); c.restore();
+
+  /* ripples (one per note) and the bell shockwave */
+  c.save(); c.beginPath(); c.rect(0, wTop, w, h - wTop); c.clip();
+  for (let i = V.ripples.length - 1; i >= 0; i--) {
+    const r = V.ripples[i]; r.t += dt; const life = r.snow ? 4.2 : 2.4;
+    if (r.t > life) { V.ripples.splice(i, 1); continue; }
+    const k = r.t / life, x = r.x * w, y = wTop + (h - wTop) * (0.45 + 0.3 * Math.sin(r.deg * 1.7));
+    for (let q = 0; q < 2; q++) {
+      const kk = k - q * 0.12; if (kk <= 0) continue;
+      c.strokeStyle = (r.snow ? 'rgba(230,240,255,' : 'rgba(170,205,255,') + ((1 - kk) * 0.5).toFixed(3) + ')'; c.lineWidth = 1.2;
+      c.beginPath(); c.ellipse(x, y, kk * 80 + 3, kk * 17 + 1, 0, 0, 6.283); c.stroke();
+    }
+  }
+  c.restore();
+  for (let i = V.shocks.length - 1; i >= 0; i--) {
+    const s = V.shocks[i]; s.t += dt; if (s.t > 3.5) { V.shocks.splice(i, 1); continue; }
+    const k = s.t / 3.5, cx = w * 0.5, cy = hor - 40;
+    c.strokeStyle = 'rgba(240,205,140,' + ((1 - k) * (1 - k) * 0.7).toFixed(3) + ')'; c.lineWidth = 2.2 * (1 - k) + 0.4;
+    c.beginPath(); c.arc(cx, cy, k * Math.max(w, h) * 0.8, 0, 6.283); c.stroke();
+  }
+
+  /* precipitation particles */
+  const target = Math.round(E.precip * (REDUCED ? 90 : 260));
+  while (V.parts.length < target) V.parts.push({ x: Math.random() * 1.2 - 0.1, y: -0.05, v: 0.7 + Math.random() * 0.7, ph: Math.random() * 6.28, s: 0.6 + Math.random() * 0.8 });
+  const slant = clamp(E.wind / 40, 0, 1) * 0.35;
+  for (let i = V.parts.length - 1; i >= 0; i--) {
+    const p = V.parts[i];
+    if (E.snow) { p.y += dt * 0.09 * p.v; p.x += dt * (slant * 0.12 + Math.sin(V.tmr * 0.8 + p.ph) * 0.012); }
+    else { p.y += dt * 1.1 * p.v; p.x += dt * slant * 0.5; }
+    if (p.y > 0.98 || p.x > 1.15) { if (V.parts.length > target) { V.parts.splice(i, 1); continue; } p.y = -0.03; p.x = Math.random() * 1.2 - 0.1; }
+    const x = p.x * w, y = p.y * h;
+    if (E.snow) { c.fillStyle = 'rgba(245,250,255,' + (0.75 * p.s).toFixed(2) + ')'; c.beginPath(); c.arc(x, y, 1.1 + p.s * 1.4, 0, 6.283); c.fill(); }
+    else { c.strokeStyle = 'rgba(190,215,245,' + (0.4 * p.s).toFixed(2) + ')'; c.lineWidth = 1; c.beginPath(); c.moveTo(x, y); c.lineTo(x - slant * 9, y - 11 * p.s); c.stroke(); }
+  }
+  /* fog on humid, cloudy air */
+  const fog = clamp((E.hum - 70) / 30, 0, 1) * clamp(E.cloud / 100, 0, 1);
+  if (fog > 0.02) { const fg = c.createLinearGradient(0, hor - 80, 0, h); fg.addColorStop(0, 'rgba(210,220,235,0)'); fg.addColorStop(0.5, 'rgba(210,220,235,' + (fog * 0.28).toFixed(3) + ')'); fg.addColorStop(1, 'rgba(210,220,235,0)'); c.fillStyle = fg; c.fillRect(0, hor - 80, w, h); }
+  /* lightning-free storm vignette */
+  if (E.wind > 24 && E.precip > 0.6) { c.fillStyle = 'rgba(0,0,0,' + (0.12 + 0.05 * Math.sin(V.tmr * 3)).toFixed(3) + ')'; c.fillRect(0, 0, w, h); }
+}
+
+/* ---------- melody grid: LEDs that fall like rain or settle like snow ---------- */
+function drawGrid(dt) {
+  const c = V.gx, w = V.gw, h = V.gh, E = V.E || effective();
+  c.setTransform(V.dpr, 0, 0, V.dpr, 0, 0);
+  c.fillStyle = '#060a11'; c.fillRect(0, 0, w, h);
+  const cw = w / COLS, rh = h / ROWS, pad = Math.min(cw, rh) * 0.14;
+  const led = (x, y, a, hue) => {
+    if (a <= 0.01) return;
+    const cx = x * cw + cw / 2, cy = y * rh + rh / 2, s = Math.min(cw, rh) / 2 - pad;
+    if (a > 0.25) { const g = c.createRadialGradient(cx, cy, 0, cx, cy, s * 2.2); g.addColorStop(0, 'hsla(' + hue + ',70%,62%,' + (a * 0.35).toFixed(3) + ')'); g.addColorStop(1, 'hsla(' + hue + ',70%,62%,0)'); c.fillStyle = g; c.fillRect(cx - s * 2.2, cy - s * 2.2, s * 4.4, s * 4.4); }
+    c.fillStyle = 'hsla(' + hue + ',' + (a > 0.6 ? 55 : 70) + '%,' + (38 + a * 36) + '%,' + a.toFixed(3) + ')';
+    c.beginPath(); c.arc(cx, cy, s * (0.55 + a * 0.4), 0, 6.283); c.fill();
+  };
+  for (let x = 0; x < COLS; x++) for (let y = 0; y < ROWS; y++) led(x, y, 0.07, 215);
+  for (let i = V.drops.length - 1; i >= 0; i--) {
+    const d = V.drops[i];
+    if (d.snow) { d.y += dt * 2.4; d.x = Math.sin(V.tmr * 1.4 + d.ph) * 0.18; } else { d.y += dt * 13; d.x = 0; }
+    const floor = ROWS - 1 - Math.floor(V.pile[d.col]);
+    if (d.y >= floor) {
+      if (d.snow) V.pile[d.col] = Math.min(4.9, V.pile[d.col] + 0.6);
+      V.drops.splice(i, 1); continue;
+    }
+    const trail = d.snow ? 1 : 3;
+    for (let k = 0; k < trail; k++) led(d.col + (d.x || 0), d.y - k * 0.8, (1 - k / trail) * (d.snow ? 0.95 : 1), d.snow ? 200 : 38);
+  }
+  for (let x = 0; x < COLS; x++) {
+    V.pile[x] = Math.max(0, V.pile[x] - dt * (E.temp > 30 ? 0.12 : 0.05));
+    const p = V.pile[x];
+    for (let k = 0; k < Math.ceil(p); k++) led(x, ROWS - 1 - k, Math.min(1, p - k + 0.35) * 0.8, 205);
+  }
+  /* current pitch floor line */
+  c.fillStyle = 'rgba(217,170,96,.25)'; c.fillRect(0, h - 1, w, 1);
+}
+
+/* ================= UI: controls, weather rows, frame loop ================= */
+const el = (tag, props, ...kids) => {
+  const e = document.createElement(tag);
+  if (props) for (const k in props) { if (k === 'class') e.className = props[k]; else if (k === 'text') e.textContent = props[k]; else e.setAttribute(k, props[k]); }
+  kids.forEach(k => k && e.appendChild(k)); return e;
+};
+const labelFns = [];       /* functions that refresh displayed values */
+let uid = 0;
+
+function slider(parent, label, key, min, max, step, fmt, onInput) {
+  const id = 'c' + (++uid);
+  const out = el('output', { for: id }), inp = el('input', { type: 'range', id, min, max, step });
+  const lab = el('span', { text: label });
+  const refresh = () => { inp.value = cfg[key]; out.textContent = fmt(cfg[key]); };
+  inp.addEventListener('input', () => { cfg[key] = parseFloat(inp.value); out.textContent = fmt(cfg[key]); saveCfg(); onInput && onInput(cfg[key]); if (A) applyAudio(false); });
+  parent.appendChild(el('div', { class: 'ctl' }, el('label', { class: 'lab', for: id }, lab, out), inp));
+  refresh(); labelFns.push(refresh);
+  return { lab, refresh };
+}
+function select(parent, label, key, options, onChange, num) {
+  const id = 'c' + (++uid), s = el('select', { id });
+  options.forEach(([v, t]) => s.appendChild(el('option', { value: v, text: t })));
+  const refresh = () => { s.value = String(cfg[key]); };
+  s.addEventListener('change', () => { cfg[key] = num ? parseInt(s.value, 10) : s.value; saveCfg(); onChange && onChange(cfg[key]); if (A) applyAudio(false); });
+  parent.appendChild(el('div', { class: 'row' }, el('label', { for: id, text: label }), s));
+  refresh(); labelFns.push(refresh); return s;
+}
+function toggle(parent, label, key, onChange) {
+  const id = 'c' + (++uid), i = el('input', { type: 'checkbox', id, class: 'sw', role: 'switch' });
+  const refresh = () => { i.checked = !!cfg[key]; };
+  i.addEventListener('change', () => { cfg[key] = i.checked; saveCfg(); onChange && onChange(i.checked); if (A) applyAudio(false); });
+  parent.appendChild(el('div', { class: 'row' }, el('label', { for: id, text: label }), i));
+  refresh(); labelFns.push(refresh);
+}
+const heading = (parent, t) => parent.appendChild(el('h3', { text: t }));
+const pct = v => Math.round(v * 100) + '%', x2 = v => v.toFixed(2) + '×', sec = v => v.toFixed(1) + ' s';
+
+/* ---------- drone ---------- */
+function buildDroneUI() {
+  const p = $('#drone-ctl');
+  select(p, 'Oscillator', 'model', Object.entries(MODELS).map(([k, m]) => [k, m.name]), m => {
+    cfg.tA = MODELS[m].a[1]; cfg.tB = MODELS[m].b[1]; relabelTimbre(); labelFns.forEach(f => f()); switchDrone(m);
+  });
+  const tA = slider(p, MODELS[cfg.model].a[0], 'tA', 0, 1, 0.01, pct);
+  const tB = slider(p, MODELS[cfg.model].b[0], 'tB', 0, 1, 0.01, pct);
+  window.relabelTimbre = () => { tA.lab.textContent = MODELS[cfg.model].a[0]; tB.lab.textContent = MODELS[cfg.model].b[0]; };
+  select(p, 'Root note', 'root', ROOTS.map((r, i) => [i, r.name]), () => { if (A) setDroneFreq(3); }, true);
+  slider(p, 'Drone level', 'droneLevel', 0, 1.5, 0.01, pct);
+  heading(p, 'Filter and motion');
+  slider(p, 'Brightness (cutoff)', 'cutoff', 200, 5000, 10, v => Math.round(v) + ' Hz');
+  slider(p, 'Resonance', 'resonance', 0, 0.6, 0.01, pct);
+  slider(p, 'Filter sweep depth', 'lfoDepth', 0, 1800, 10, v => Math.round(v) + ' Hz');
+  slider(p, 'Sweep speed', 'lfoMult', 0.2, 4, 0.05, x2);
+  heading(p, 'Pitch drift');
+  toggle(p, 'Drift the root', 'drift');
+  slider(p, 'Time between moves', 'driftInterval', 0.3, 3, 0.05, x2);
+  slider(p, 'Range', 'driftRange', 0.3, 2, 0.05, x2);
+  slider(p, 'Glide length', 'glideMult', 0.2, 3, 0.05, x2);
+  const d = el('details'); d.appendChild(el('summary', { text: 'Layer levels' })); p.appendChild(d);
+  [['trimSub2', 'Deep sub (two octaves down)'], ['trimSub1', 'Sub (octave down)'], ['trimRoot', 'Root'], ['trimOct1', 'Octave up'], ['trimOct2', 'Two octaves up'], ['trimBell', 'Bell partial']]
+    .forEach(([k, n]) => slider(d, n, k, 0, 2, 0.01, pct));
+}
+
+/* ---------- melody ---------- */
+function buildMelodyUI() {
+  const p = $('#mel-ctl');
+  toggle(p, 'Melody on', 'melodyOn');
+  select(p, 'Voice', 'mvoice', [['string', 'Plucked string'], ['glass', 'Glass bell'], ['kalimba', 'Kalimba'], ['pad', 'Soft pad']]);
+  select(p, 'Scale', 'mscale', SCALES.map((s, i) => [i, s[0]]), () => { M.deg = 0; }, true);
+  select(p, 'Precipitation type', 'precipMode', [['auto', 'Auto (snow at or below 32°F)'], ['rain', 'Always rain'], ['snow', 'Always snow']]);
+  slider(p, 'Tempo', 'bpm', 40, 200, 1, v => v + ' bpm');
+  slider(p, 'Melody level', 'mlevel', 0, 1.5, 0.01, pct);
+  slider(p, 'Density', 'density', 0.1, 1.5, 0.01, pct);
+  slider(p, 'Octave', 'octave', -1, 2, 1, v => (v > 0 ? '+' : '') + v);
+  slider(p, 'Dry-weather floor', 'dryFloor', 0, 0.4, 0.01, pct);
+  heading(p, 'Shape');
+  slider(p, 'Wander', 'wander', 0.5, 3, 0.1, x2);
+  slider(p, 'Pull to the centre', 'pull', 0, 2, 0.05, x2);
+  slider(p, 'Chance to repeat', 'holdP', 0, 0.6, 0.01, pct);
+  slider(p, 'Ring length', 'decayScale', 0.3, 3, 0.05, x2);
+  slider(p, 'Brightness', 'mbright', 0.1, 1, 0.01, pct);
+}
+
+/* ---------- space ---------- */
+function buildFxUI() {
+  const p = $('#fx-ctl');
+  slider(p, 'Reverb amount', 'reverbMix', 0, 1, 0.01, pct);
+  slider(p, 'Reverb size', 'reverbSize', 0.8, 8, 0.1, sec, () => { clearTimeout(window.__rvT); window.__rvT = setTimeout(() => setReverbSize(cfg.reverbSize), 300); });
+  slider(p, 'Echo amount', 'delayMix', 0, 0.8, 0.01, pct);
+  select(p, 'Echo spacing', 'delayDiv', [[0.25, 'Sixteenth'], [0.5, 'Eighth'], [0.75, 'Dotted eighth'], [1, 'Quarter'], [1.5, 'Dotted quarter'], [2, 'Half']]);
+  cfg.delayDiv = parseFloat(cfg.delayDiv);
+  slider(p, 'Echo feedback', 'delayFb', 0, 0.85, 0.01, pct);
+  heading(p, 'Air');
+  slider(p, 'Wind level', 'windLevel', 0, 1.5, 0.01, pct);
+  slider(p, 'Rain and snow hiss', 'precipNoise', 0, 1.5, 0.01, pct);
+  slider(p, 'Bell level', 'bellLevel', 0, 1.5, 0.01, pct);
+  toggle(p, 'Chime on the hour', 'hourlyBell');
+}
+
+/* ---------- mapping depth ---------- */
+const MAP_ROWS = [
+  ['temp', 'Temperature', 'Warm air opens the filter, cold air closes it.'],
+  ['wind', 'Wind', 'Faster swells, a rising filter sweep, gusts with a whistle.'],
+  ['humidity', 'Humidity', 'Shorter waits and longer glides between pitch moves; damp air darkens the reverb.'],
+  ['precip', 'Rain or snow chance', 'More notes, closer together. Cold makes them snow.'],
+  ['pressure', 'Pressure', 'Low pressure widens the timbre, high pressure narrows it.'],
+  ['cloud', 'Cloud cover', 'Clouds dim the tone and thicken the reverb.'],
+  ['time', 'Time of day', 'Daylight lifts the upper octaves. Night leans on the subs.'],
+  ['moon', 'Moon phase', 'A fuller moon sends slow throbs through the sub layers.'],
+];
+function buildMapUI() {
+  const p = $('#map-rows');
+  MAP_ROWS.forEach(([k, n, d]) => {
+    const id = 'c' + (++uid), out = el('output', { for: id }), inp = el('input', { type: 'range', id, min: 0, max: 2, step: 0.05 });
+    const refresh = () => { inp.value = cfg.depth[k]; out.textContent = x2(cfg.depth[k]); };
+    inp.addEventListener('input', () => { cfg.depth[k] = parseFloat(inp.value); out.textContent = x2(cfg.depth[k]); saveCfg(); if (A) applyAudio(false); });
+    p.appendChild(el('div', { class: 'map' }, el('div', { class: 'what' }, el('b', { text: n }), el('span', { text: d })), el('div', { class: 'ctl' }, el('label', { class: 'lab', for: id }, el('span', { text: 'Depth' }), out), inp)));
+    refresh(); labelFns.push(refresh);
+  });
+}
+
+/* ---------- weather rows with live or hold ---------- */
+const wxRows = {};
+function buildWeatherUI() {
+  const pl = $('#place');
+  PLACES.forEach(([n], i) => pl.appendChild(el('option', { value: i, text: n })));
+  pl.appendChild(el('option', { value: -1, text: 'Custom' }));
+  const syncPlace = () => { pl.value = String(cfg.place); $('#lat').value = cfg.lat.toFixed(2); $('#lon').value = cfg.lon.toFixed(2); };
+  syncPlace();
+  pl.addEventListener('change', () => {
+    const i = parseInt(pl.value, 10);
+    if (i >= 0) { cfg.place = i; cfg.lat = PLACES[i][1]; cfg.lon = PLACES[i][2]; }
+    else cfg.place = -1;
+    syncPlace(); saveCfg(); scheduleLive();
+  });
+  const onLL = () => {
+    const la = parseFloat($('#lat').value), lo = parseFloat($('#lon').value);
+    if (Number.isFinite(la) && Number.isFinite(lo)) { cfg.lat = clamp(la, -90, 90); cfg.lon = clamp(lo, -180, 180); cfg.place = -1; pl.value = '-1'; saveCfg(); scheduleLive(); }
+  };
+  $('#lat').addEventListener('change', onLL); $('#lon').addEventListener('change', onLL);
+  $('#src').value = cfg.useLive ? 'live' : 'sim';
+  $('#src').addEventListener('change', e => { cfg.useLive = e.target.value === 'live'; saveCfg(); scheduleLive(); });
+  $('#refresh').addEventListener('click', () => { if (cfg.useLive) fetchLive(); });
+  $('#geo').addEventListener('click', () => {
+    if (!navigator.geolocation) { S.statusMsg = 'This browser has no location service.'; return; }
+    S.statusMsg = 'Asking for your location';
+    navigator.geolocation.getCurrentPosition(p => { cfg.lat = p.coords.latitude; cfg.lon = p.coords.longitude; cfg.place = -1; syncPlace(); saveCfg(); scheduleLive(); },
+      () => { S.statusMsg = 'Location was not shared, so the place stays as it was.'; }, { timeout: 8000 });
+  });
+
+  const pc = $('#presets');
+  PRESETS.forEach(([n, v]) => pc.appendChild(el('button', { class: 'chip', type: 'button', text: n })).addEventListener('click', () => {
+    for (const k in v) { S.hold[k] = true; S.held[k] = v[k]; }
+  }));
+  pc.appendChild(el('button', { class: 'chip', type: 'button', text: 'Release all' })).addEventListener('click', () => { S.hold = {}; });
+
+  const root = $('#wx-vars');
+  VARS.forEach(v => {
+    const id = 'c' + (++uid), out = el('output', { for: id }), inp = el('input', { type: 'range', id, min: v.min, max: v.max, step: v.step });
+    const chip = el('button', { class: 'chip', type: 'button', 'aria-pressed': 'false', text: 'Live' });
+    inp.addEventListener('input', () => { S.hold[v.k] = true; S.held[v.k] = parseFloat(inp.value); });
+    chip.addEventListener('click', () => { if (S.hold[v.k]) delete S.hold[v.k]; else { S.hold[v.k] = true; S.held[v.k] = S.wx[v.k]; } });
+    root.appendChild(el('div', { class: 'wx' }, el('div', { class: 'head' }, el('label', { for: id, text: v.name }), out), inp, chip));
+    wxRows[v.k] = { v, inp, out, chip };
+  });
+
+  const t = $('#wx-time');
+  const hid = 'c' + (++uid), hout = el('output', { for: hid }), hin = el('input', { type: 'range', id: hid, min: 0, max: 24, step: 0.05 });
+  hin.addEventListener('pointerdown', () => { S.timeDrag = true; });
+  const endDrag = () => { S.timeDrag = false; }; hin.addEventListener('pointerup', endDrag); hin.addEventListener('change', endDrag); hin.addEventListener('blur', endDrag);
+  hin.addEventListener('input', () => {
+    S.timeDrag = true;
+    const h0 = solarHour(new Date(Date.now()), cfg.lon), tgt = parseFloat(hin.value);
+    S.timeOffset = (((tgt - h0 + 36) % 24) - 12) * 3600e3;
+    hout.textContent = fmtHour(tgt % 24);
+  });
+  t.appendChild(el('div', { class: 'ctl' }, el('label', { class: 'lab', for: hid }, el('span', { text: 'Local solar time' }), hout), hin));
+  wxRows.__hour = { hin, hout };
+  const sid = 'c' + (++uid), ss = el('select', { id: sid });
+  [[1, 'Real time'], [60, '1 minute per second'], [600, '10 minutes per second'], [3600, '1 hour per second']].forEach(([v, n]) => ss.appendChild(el('option', { value: v, text: n })));
+  ss.addEventListener('change', () => { S.timeSpeed = parseFloat(ss.value); });
+  t.appendChild(el('div', { class: 'row' }, el('label', { for: sid, text: 'Time-lapse' }), ss));
+  const nowChip = el('button', { class: 'chip', type: 'button', text: 'Back to now' });
+  nowChip.addEventListener('click', () => { S.timeOffset = 0; S.timeSpeed = 1; ss.value = '1'; });
+  t.appendChild(el('div', { class: 'chips' }, nowChip));
+
+  const mid = 'c' + (++uid), mout = el('output', { for: mid }), min_ = el('input', { type: 'range', id: mid, min: 0, max: 1, step: 0.005 });
+  min_.addEventListener('input', () => { S.moonHold = true; S.moonPhase = parseFloat(min_.value); moonChip.setAttribute('aria-pressed', 'true'); moonChip.textContent = 'Held'; });
+  const moonChip = el('button', { class: 'chip', type: 'button', 'aria-pressed': 'false', text: 'Live' });
+  moonChip.addEventListener('click', () => { S.moonHold = !S.moonHold; if (S.moonHold) S.moonPhase = (S.E ? S.E.moonPhase : 0.5); });
+  t.appendChild(el('div', { class: 'wx' }, el('div', { class: 'head' }, el('label', { for: mid, text: 'Moon phase' }), mout), min_, moonChip));
+  wxRows.__moon = { min_, mout, moonChip };
+}
+
+function refreshWeatherUI(E) {
+  for (const k in wxRows) {
+    if (k.startsWith('__')) continue;
+    const r = wxRows[k], held = !!S.hold[k], val = held ? S.held[k] : S.wx[k];
+    r.out.textContent = r.v.fmt(val);
+    if (document.activeElement !== r.inp) r.inp.value = val;
+    r.chip.textContent = held ? 'Held' : 'Live'; r.chip.setAttribute('aria-pressed', String(held));
+  }
+  const h = wxRows.__hour; if (!S.timeDrag) { h.hin.value = E.hour; h.hout.textContent = fmtHour(E.hour); }
+  const m = wxRows.__moon; m.mout.textContent = moonName(E.moonPhase);
+  if (document.activeElement !== m.min_) m.min_.value = E.moonPhase;
+  m.moonChip.textContent = S.moonHold ? 'Held' : 'Live'; m.moonChip.setAttribute('aria-pressed', String(S.moonHold));
+}
+
+/* ---------- transport ---------- */
+function wireTransport() {
+  const begin = $('#begin'), strike = $('#strike'), mute = $('#mute'), master = $('#master');
+  master.value = cfg.master;
+  master.addEventListener('input', () => { cfg.master = parseFloat(master.value); saveCfg(); if (A) applyAudio(false); });
+  begin.addEventListener('click', async () => {
+    if (A) {
+      if (A.ctx.state === 'running') { await A.ctx.suspend(); begin.textContent = 'Resume'; }
+      else { await A.ctx.resume(); begin.textContent = 'Pause'; }
+      return;
+    }
+    begin.disabled = true; begin.textContent = 'Starting';
+    try {
+      await buildAudio(); A.E = effective();
+      applyAudio(true);
+      A.master.gain.setValueAtTime(0, A.ctx.currentTime); A.master.gain.linearRampToValueAtTime(cfg.master * 0.9, A.ctx.currentTime + 2.5);
+      begin.textContent = 'Pause'; strike.disabled = false; mute.disabled = false;
+      $('#hint-start').style.display = 'none';
+    } catch (e) { begin.textContent = 'Begin'; S.statusMsg = 'Audio could not start: ' + e.message; }
+    begin.disabled = false;
+  });
+  strike.addEventListener('click', () => strikeBell(0));
+  mute.addEventListener('click', () => { S.muted = !S.muted; mute.setAttribute('aria-pressed', String(S.muted)); mute.textContent = S.muted ? 'Unmute' : 'Mute'; if (A) applyAudio(false); });
+  addEventListener('keydown', e => {
+    if (e.target.matches('input,select,textarea')) return;
+    if (e.code === 'Space') { e.preventDefault(); begin.click(); }
+    else if (e.key === 'b' && A) strikeBell(0);
+    else if (e.key === 'm' && A) mute.click();
+  });
+}
+
+/* ---------- frame loop ---------- */
+let lastT = performance.now(), uiAcc = 0, simAcc = 0;
+function frame(now) {
+  const dt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
+  if (S.timeSpeed !== 1 && !S.timeDrag) S.timeOffset += dt * 1000 * (S.timeSpeed - 1);
+  simAcc += dt; if (simAcc >= 0.5) { if (S.source === 'sim' || !cfg.useLive) simStep(simAcc); simAcc = 0; }
+  drawSky(dt); drawGrid(dt);
+  const E = V.E; S.E = E;
+  if (A) $('#meter').style.width = Math.round(clamp(V.energy * 3.2, 0, 1) * 100) + '%';
+  uiAcc += dt;
+  if (uiAcc > 0.25) {
+    uiAcc = 0; refreshWeatherUI(E);
+    $('#tag-sun').textContent = dayName(E.sunAlt, E.sunHa) + ' · ' + fmtHour(E.hour);
+    $('#tag-moon').textContent = moonName(E.moonPhase);
+    $('#tag-wx').textContent = Math.round(E.temp) + '°F · ' + (E.precip > 0.05 ? (E.snow ? 'snow ' : 'rain ') + Math.round(E.precip * 100) + '%' : 'dry') + ' · wind ' + Math.round(E.wind);
+    $('#sub').textContent = (cfg.place >= 0 && PLACES[cfg.place] ? PLACES[cfg.place][0] : cfg.lat.toFixed(1) + ', ' + cfg.lon.toFixed(1)) + ' · ' + (S.source === 'live' ? 'live sky' : 'simulated sky');
+    $('#status-text').textContent = S.statusMsg; $('#status').classList.toggle('live', S.source === 'live');
+  }
+  requestAnimationFrame(frame);
+}
+
+function boot() {
+  buildDroneUI(); buildMelodyUI(); buildFxUI(); buildMapUI(); buildWeatherUI(); wireTransport();
+  initVisual(); scheduleLive();
+  /* keep the visible simulated sky moving even when live is off */
+  requestAnimationFrame(t => { lastT = t; frame(t); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) lastT = performance.now(); });
+}
+boot();
+window.__bw = { get A() { return A; }, S, cfg, effective, switchDrone, playNote, strikeBell, MODELS, M, vis, V };
+
+</script>
+</body>
+</html>
